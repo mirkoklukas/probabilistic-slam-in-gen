@@ -18,6 +18,8 @@ logit(p::Real)   = log(p/(1 -p));
 ell(p::Real)     = logit(p);
 expit(ell::Real) = 1 - 1/(1 + exp(ell));
 
+export logit, ell, expit
+
 abstract type AbstractGridMap{C} end
 
 function Base.getindex(m::AbstractGridMap{C}, cell::C) where C error("Not implemented") end
@@ -118,7 +120,9 @@ function SimpleGridMap(shape::Tuple{Int,Int}, center::Vector{Float64}; res::Floa
     SimpleGridMap(shape, res, prior, xs, vs, w)
 end
 
-function weigh!(m::SimpleGridMap) m.weight = sum(expit.(m.vs)) end
+function weigh!(m::SimpleGridMap)
+    m.weight = sum(expit.(m.vs))
+end
 
 function grid_probs(m::SimpleGridMap)
     probs = expit.(m.vs)
@@ -170,6 +174,7 @@ function Gen.logpdf(::GridMapDistribution, x::Vector{Float64}, p::Pose, m::Abstr
     if !on_map(y, m) return -Inf end
 
     # Todo: make sure `m.weights` is up to date
+    # Note: assumes an "ell"-map, i.e. logit values.
     return log(expit(m[y])) - log(1/m.res^2) - log(m.weight)
 end
 

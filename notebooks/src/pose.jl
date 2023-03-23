@@ -10,8 +10,7 @@
 
 using Colors, Plots
 col = palette(:default);
-
-using MyUtils: rot, unit_vec
+using MyUtils
 
 raw"""
     Pose
@@ -29,6 +28,7 @@ Pose() = Pose([0;0], 0)
 headdirection(p::Pose) = p.hd
 position(p::Pose) = p.x
 tuple(p::Pose) = (p.x, p.hd)
+MyUtils.angle(p::Pose) = p.hd
 
 Base.iterate(p::Pose) = iterate([p.x, p.hd])
 Base.iterate(p::Pose, state::Int) = iterate([p.x, p.hd], state)
