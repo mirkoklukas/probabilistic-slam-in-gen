@@ -26,7 +26,6 @@ Measurement(x::Vector{Float64}) = Measurement(norm(x), atan(x[2],x[1]));
 tuple(s::Measurement) = (z,a);
 depth(s::Measurement) = s.z;
 MyUtils.angle(s::Measurement) = s.a;
-MyUtils.euclidean(s::Measurement) = [s.z*cos(s.a); s.z*sin(s.a)];
 MyUtils.polar(s::Measurement) = [s.z;s.a]
 vector(s::Measurement) = [s.z*cos(s.a); s.z*sin(s.a)];
 vec(s::Measurement)    = [s.z*cos(s.a); s.z*sin(s.a)];

@@ -9,6 +9,7 @@ notebooks = [
 "13 - Beam_Models.ipynb",
 "14 - Grid_Map.ipynb",
 "10 - GridSLAM_Module.ipynb",
+"99 - CUDA_Raycaster_Line_Map.ipynb",
 ]
 
 

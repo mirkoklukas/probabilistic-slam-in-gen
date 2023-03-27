@@ -14,7 +14,6 @@ module Geometry
 
 using Colors, Plots
 col = palette(:default);
-
 using MyUtils
 using LinearAlgebra
 
@@ -66,7 +65,7 @@ function bounding_box(segs::Vector{Segment})
     return ([min_x;min_y],[max_x;max_y])
 end
 
-export Segment, segments, bounding_box, distance
+export Segment, segments, bounding_box, distance, vec
 
 function Plots.plot!(s::Segment; args...)
     plot!([s.x[1],s.y[1]], [s.x[2],s.y[2]]; args...)

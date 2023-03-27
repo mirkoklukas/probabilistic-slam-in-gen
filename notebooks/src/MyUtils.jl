@@ -14,15 +14,24 @@ module MyUtils
 
 using LinearAlgebra
 
-unit_vec(a::Float64)    = [cos(a);sin(a)];
-polar(x::Vector{Float64}) = [norm(x);atan(x[2],x[1])];
-euclidean(r_and_phi::Vector{Float64}) = [r_and_phi[1]*cos(r_and_phi[2]);r_and_phi[1]*sin(r_and_phi[2])]
-euclidean(r::Float64, phi::Float64) = [r*cos(phi);r*sin(phi)]
+unit_vec(a::Float64) = [cos(a);sin(a)];
+
 LinearAlgebra.angle(x::Vector{Float64}) = atan(x[2],x[1]);
-stack(xs::AbstractVector) = reduce(vcat, transpose.(xs));
+
 peak_to_peak(xs) = (xs .- minimum(xs))./(maximum(xs) - minimum(xs))
 
+polar(x::Vector{Float64}) = [norm(x);atan(x[2],x[1])];
+polar_inv(zs::Vector{Float64}, as::Vector{Float64}) = [[z*cos(a);z*sin(a)] for (z,a) in zip(zs,as)];
+polar_inv(r_and_phi::Vector{Float64}) = [r_and_phi[1]*cos(r_and_phi[2]);r_and_phi[1]*sin(r_and_phi[2])]
+polar_inv(r::Float64, phi::Float64)   = [r*cos(phi);r*sin(phi)]
+
 export unit_vec, polar, angle, stack, peak_to_peak, euclidean
+
+"""Stacks vectors on top of each other (as rows, along dim 1)"""
+stack(xs::AbstractVector) = reduce(vcat, transpose.(xs));
+"""Stacks vectors horizontally (along dim 2)"""
+hstack(xs::AbstractVector) = reduce(hcat,xs);
+export stack, hstack
 
 rot(hd) = [[cos(hd) -sin(hd)]; [sin(hd) cos(hd)]]
 

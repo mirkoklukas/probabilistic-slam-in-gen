@@ -65,9 +65,11 @@ on_map(x::Vector{Float64}, m::AbstractGridMap{CartesianIndex}) = on_map(grid_ind
 Base.getindex( m::AbstractGridMap{CartesianIndex}, i::CartesianIndex) = m.vs[i]
 Base.getindex( m::AbstractGridMap{CartesianIndex}, x::Vector{Float64}) = m.vs[grid_index(x,m)]
 Base.setindex!(m::AbstractGridMap{CartesianIndex}, v::Float64, i::CartesianIndex) = m.vs[i] = v
-export grid_index, on_map
+bounding_box(m::AbstractGridMap{CartesianIndex}) = (m.xs[1], m.xs[end])
 
-function Plots.plot!(m::AbstractGridMap{CartesianIndex}, repr=:prob; ticks=false)
+export grid_index, on_map, bounding_box
+
+function Plots.plot!(m::AbstractGridMap{CartesianIndex}, repr=:prob, ticks=false; args...)
     vs = Matrix(m.vs')
     if repr == :raw
         mat = Matrix(vs)
