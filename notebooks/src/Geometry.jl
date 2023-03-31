@@ -24,6 +24,7 @@ end
 Segment(x1::Float64,x2::Float64,y1::Float64,y2::Float64) = Segment([x1;x2],[y1;y2])
 Segment(xs::Vector{Float64}) = Segment(xs[1:2],xs[3:4])
 
+Base.Vector(s::Segment) = [s.x;s.y]
 vec(s::Segment)  = [s.x;s.y]
 diff(s::Segment) = s.y - s.x
 stack(segs::Vector{Segment}) = reduce(vcat, transpose.(vec.(segs)))

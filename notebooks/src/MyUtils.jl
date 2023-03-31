@@ -25,7 +25,7 @@ polar_inv(zs::Vector{Float64}, as::Vector{Float64}) = [[z*cos(a);z*sin(a)] for (
 polar_inv(r_and_phi::Vector{Float64}) = [r_and_phi[1]*cos(r_and_phi[2]);r_and_phi[1]*sin(r_and_phi[2])]
 polar_inv(r::Float64, phi::Float64)   = [r*cos(phi);r*sin(phi)]
 
-export unit_vec, polar, angle, stack, peak_to_peak, euclidean
+export unit_vec, polar, angle, stack, peak_to_peak, euclidean, polar_inv
 
 """Stacks vectors on top of each other (as rows, along dim 1)"""
 stack(xs::AbstractVector) = reduce(vcat, transpose.(xs));

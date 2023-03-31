@@ -1,0 +1,32 @@
+# # # # # # # # # # # # # # # # # # # 
+#                                   # 
+#   This is an auto-generated file  # 
+#   based on the jupyter notebook   # 
+#
+#   >   ``30 - CUDA kernels.ipynb''
+#
+#                                   #
+# # # # # # # # # # # # # # # # # # #
+
+push!(LOAD_PATH, "src");
+using MyUtils
+using CUDA
+using BenchmarkTools
+using Colors, Plots
+col = palette(:default);
+
+"""
+    griddims = cuda_grid(datadims::Tuple{Vararg{Int}},
+                         blockdims::Tuple{Vararg{Int}})
+
+Given data dimensions `datadims` and number of threads
+in each dimension `blockdims` returns the respective
+grid dimensions `griddims` such that
+
+    griddims[i] = ceil(Int, datadims[i]/blockdims[i])
+
+"""
+function cuda_grid(datadims::Tuple{Vararg{Int}}, blockdims::Tuple{Vararg{Int}})
+    griddims = ceil.(Int, datadims./blockdims)
+    return griddims
+end
