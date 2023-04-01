@@ -14,6 +14,7 @@ using CUDA
 using BenchmarkTools
 using Colors, Plots
 col = palette(:default);
+import Base: @doc
 
 """
     griddims = cuda_grid(datadims::Tuple{Vararg{Int}},
@@ -465,10 +466,11 @@ function bench_fill_z!(X, P, Z; blockdims=(16,16))
     CUDA.@sync begin
         @cuda threads=blockdims blocks=griddims fill_z!(X, P, Z)
     end
-end
+end;
 
-"""
-    z = cast_v4!(X, P, Z; blockdims=(16,16))
+
+@doc raw"""
+    cast_v4!(X, P, Z; blockdims=(16,16))
 
 Takes array of `n` stacked segments `X` and `m` stacked poses `P`
 and an observation array `Z` of shape `(n,m,k)` and fills
