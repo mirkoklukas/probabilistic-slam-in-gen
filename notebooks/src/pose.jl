@@ -25,6 +25,7 @@ end;
 Pose(x1,x2,hd) = Pose([x1;x2],hd)
 Pose() = Pose([0;0], 0)
 
+Base.Vector(p::Pose) = [p.x;p.hd]
 headdirection(p::Pose) = p.hd
 position(p::Pose) = p.x
 tuple(p::Pose) = (p.x, p.hd)
