@@ -399,7 +399,7 @@ function bench_cast_v3!(X, P, Z; blockdims=(16,16))
     end
 end
 
-"""
+@doc raw"""
     fill_z!(X, P, Z)
 
 Caution: Implicitly assumes a fov of 2π!
@@ -516,5 +516,5 @@ function cast_v4!(X, P, Z; blockdims=(16,16))
         @cuda threads=blockdims blocks=griddims fill_z!(X, P, Z)
     end
 
-    return minimum(Z, dims=2)
+    return minimum(Z, dims=2)[:,1,:]
 end;
