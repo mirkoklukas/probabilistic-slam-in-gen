@@ -12,7 +12,7 @@ using Colors, Plots
 col = palette(:default);
 using MyUtils
 
-raw"""
+@doc raw"""
     Pose
 
 Encoding the pose of a 2d agent as
@@ -23,7 +23,7 @@ struct Pose
     hd::Float64
 end;
 Pose(x1, x2, hd) = Pose([x1;x2],hd)
-Pose(x::Vector{Float64}}) = Pose(x[1:2], x[3])
+Pose(x::Vector{Float64}) = Pose(x[1:2], x[3])
 Pose() = Pose([0;0], 0)
 
 Base.Vector(p::Pose) = [p.x;p.hd]
@@ -41,7 +41,7 @@ Base.broadcastable(p::Pose) = [p]
 
 export Pose, headdirection, position, tuple
 
-raw"""
+@doc raw"""
     Mat(p::Pose)
 
 Matrix representation of pose `p`.
