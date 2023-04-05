@@ -22,7 +22,8 @@ struct Pose
     x::Vector{Float64}
     hd::Float64
 end;
-Pose(x1,x2,hd) = Pose([x1;x2],hd)
+Pose(x1, x2, hd) = Pose([x1;x2],hd)
+Pose(x::Vector{Float64}}) = Pose(x[1:2], x[3])
 Pose() = Pose([0;0], 0)
 
 Base.Vector(p::Pose) = [p.x;p.hd]
