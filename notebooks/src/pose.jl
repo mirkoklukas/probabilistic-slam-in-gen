@@ -109,3 +109,8 @@ function Plots.plot!(p::Pose; r=0.5, n=30, args...)
     plot!(r*sin.(θs) .+ x, r*cos.(θs) .+ y,      label=nothing; args...)
     plot!([x, x + r*cos(hd)],[y, y + r*sin(hd)], label=nothing; args...)
 end
+
+struct Control
+    dx::Vector{Float64}
+    dhd::Float64
+end;
