@@ -124,12 +124,12 @@ function cast_kernel!(Z, X, P, fov=2π)
     return
 end
 
-function cast_cu!(Z, X, P; blockdims=(16,16))
+function cast_cu!(Z, X, P; fov=2π, blockdims=(16,16))
     n = size(X,1)
     m = size(P,1)
 
     griddims = cuda_grid((n,m), blockdims)
     CUDA.@sync begin
-        @cuda threads=blockdims blocks=griddims cast_kernel!(Z, X, P)
+        @cuda threads=blockdims blocks=griddims cast_kernel!(Z, X, P, fov)
     end
 end
