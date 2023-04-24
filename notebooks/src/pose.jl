@@ -12,19 +12,26 @@ using Colors, Plots
 col = palette(:default);
 using MyUtils
 
+import LinearAlgebra
 @doc raw"""
     Pose
 
 Encoding the pose of a 2d agent as
 a 2d-position `x` and its head direction `hd`.
 """
-struct Pose
+mutable struct Pose
     x::Vector{Float64}
     hd::Float64
 end;
 Pose(x1, x2, hd) = Pose([x1;x2],hd)
 Pose(x::Vector{Float64}) = Pose(x[1:2], x[3])
 Pose() = Pose([0;0], 0)
+
+function normalize!(p::Pose)
+    p.hd = mod(p.hd-π, 2π)+π
+    return p
+end
+
 
 Base.Vector(p::Pose) = [p.x;p.hd]
 headdirection(p::Pose) = p.hd
@@ -39,7 +46,9 @@ Base.:(+)(p::Pose, x::Vector{Float64}) = Pose(p.x + x, p.hd)
 Base.:(+)(p::Pose, hd::Float64) = Pose(p.x, p.hd + hd)
 Base.broadcastable(p::Pose) = [p]
 
-export Pose, headdirection, position, tuple
+LinearAlgebra.norm(p::Pose) = LinearAlgebra.norm(Vector(p))
+
+export Pose, headdirection, position, tuple, normalize!
 
 @doc raw"""
     Mat(p::Pose)
