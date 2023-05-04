@@ -185,12 +185,14 @@ const sensordist_cu = SensorDistribution_CUDA()
 
 function Gen.logpdf(::SensorDistribution_CUDA, x, y_tilde_::CuArray, sig, outlier, outlier_vol=1.0)
 
-    n,m, = size(y_tilde)
+    n = size(y_tilde_, 1)
+    m = size(y_tilde_, 2)
 
     x_        = CuArray(stack(x))
-    ys_tilde_ = reshape(y_tilde, 1, n, m, 2)
+    ys_tilde_ = reshape(y_tilde_, 1, n, m, 2)
 
-    return sensor_smc_logpdf_cu(x_, ys_tilde_, sig, outlier, outlier_vol)
+    log_p = sensor_smc_logpdf_cu(x_, ys_tilde_, sig, outlier, outlier_vol)
+    return log_p[1]
 end
 
 function Gen.random(::SensorDistribution_CUDA, y_tilde_::CuArray, sig, outlier, outlier_vol=1.0)
