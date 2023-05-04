@@ -3,7 +3,7 @@
 #   This is an auto-generated file  # 
 #   based on the jupyter notebook   # 
 #
-#   >   ``12 - Sensor Model - CUDA accelerated.ipynb''
+#   >   ``12 - Sensor Model - CUDA accelerated - sensor_b.ipynb''
 #
 #                                   #
 # # # # # # # # # # # # # # # # # # #
@@ -69,7 +69,8 @@ end
 ```julia
     y = slw_cu!(x::CuArray, w::Int; blockdims=(8,8,4))
 ```
-Computes sliding windows... takes a CuArray of shape `(k,n)` and returns a CuArray
+CUDA-accelerated function computing sliding windows.
+Takes a CuArray of shape `(k,n)` and returns a CuArray
 of shape `(k,n,m)`, where `m = 2w+1`....
 """
 function slw_cu!(x::CuArray, w::Int; blockdims=(8,8,4))
@@ -96,13 +97,12 @@ polar_inv_cu(z::CuArray, a::CuArray) = cat(z.*cos.(a), z.*sin.(a), dims=ndims(a)
 
 Takes depth measurements and returns
 the point clouds for the gaussian mixtures ...
-Returns array of shape (t,n,m,2)...
+Returns array of shape `(k, n, m, 2)` ...
 """
 function get_ys_tilde_cu(zs_::CuArray, as_::CuArray, w::Int)
 
     zs_tilde_ = slw_cu!(zs_, w; blockdims=(8,8,4))
     as_tilde_ = slw_cu!(reshape(as_,1,:), w; blockdims=(8,8,4))
-
     ys_tilde_ = polar_inv_cu(zs_tilde_, as_tilde_)
 
     return ys_tilde_
@@ -174,6 +174,9 @@ function sensor_logpdf_cu(x::CuArray, y_tilde::CuArray, sig, outlier, outlier_vo
     return log_p
 end
 
+push!(LOAD_PATH, ENV["probcomp"]*"/Gen-Distribution-Zoo/src");
+using GenDistributionZoo: diagnormal
+
 using Gen
 struct SensorDistribution_CUDA <: Distribution{Vector{Vector{Float64}}}
 end
@@ -181,13 +184,20 @@ end
 const sensordist_cu = SensorDistribution_CUDA()
 
 function Gen.logpdf(::SensorDistribution_CUDA, x, y_tilde_::CuArray, sig, outlier, outlier_vol=1.0)
-    x_ = CuArray(stack(x))
-    return sensor_logpdf_cu(x_, y_tilde_, sig, outlier, outlier_vol)
+
+    n,m, = size(y_tilde)
+
+    x_        = CuArray(stack(x))
+    ys_tilde_ = reshape(y_tilde, 1, n, m, 2)
+
+    return sensor_smc_logpdf_cu(x_, ys_tilde_, sig, outlier, outlier_vol)
 end
+
 function Gen.random(::SensorDistribution_CUDA, y_tilde_::CuArray, sig, outlier, outlier_vol=1.0)
     n = size(y_tilde_,1)
     m = size(y_tilde_,2)
 
+    # Sample an observation point cloud `x`
     x = Vector{Float64}[]
     for i=1:n
         if bernoulli(outlier)
@@ -202,6 +212,7 @@ function Gen.random(::SensorDistribution_CUDA, y_tilde_::CuArray, sig, outlier, 
         end
         push!(x, x_i)
     end
+
     return x
 end
 
