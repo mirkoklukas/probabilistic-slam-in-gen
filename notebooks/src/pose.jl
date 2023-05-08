@@ -11,8 +11,9 @@
 using Colors, Plots
 col = palette(:default);
 using MyUtils
-
 import LinearAlgebra
+
+
 @doc raw"""
     Pose
 
@@ -23,32 +24,42 @@ mutable struct Pose
     x::Vector{Float64}
     hd::Float64
 end;
+
+mutable struct Control
+    dx::Vector{Float64}
+    dhd::Float64
+end;
+
 Pose(x1, x2, hd) = Pose([x1;x2],hd)
 Pose(x::Vector{Float64}) = Pose(x[1:2], x[3])
 Pose() = Pose([0;0], 0)
 
+normalize_hd(hd::Real) = mod(hd + π, 2π) - π
 function normalize!(p::Pose)
-    p.hd = mod(p.hd-π, 2π)+π
+    p.hd = normalize_hd(p.hd)
     return p
 end
 
-
-Base.Vector(p::Pose) = [p.x;p.hd]
+Base.Vector(p::Pose)   = [p.x;p.hd]
 headdirection(p::Pose) = p.hd
-position(p::Pose) = p.x
-tuple(p::Pose) = (p.x, p.hd)
-MyUtils.angle(p::Pose) = p.hd
+position(p::Pose)      = p.x
+tuple(p::Pose)         = (p.x, p.hd)
 
-Base.iterate(p::Pose) = iterate([p.x, p.hd])
+Base.iterate(p::Pose)             = iterate([p.x, p.hd])
 Base.iterate(p::Pose, state::Int) = iterate([p.x, p.hd], state)
-Base.getindex(p::Pose, i::Int) = [p.x, p.hd][i]
+Base.getindex(p::Pose, i::Int)    = [p.x, p.hd][i]
+
 Base.:(+)(p::Pose, x::Vector{Float64}) = Pose(p.x + x, p.hd)
 Base.:(+)(p::Pose, hd::Float64) = Pose(p.x, p.hd + hd)
+Base.:(+)(u::Control, v::Control) = Control(u.dx + v.dx, u.dhd + v.dhd)
+Base.:(+)(p::Pose, u::Control) = Pose(p.x + u.dx, p.hd + u.dhd)
+Base.:(-)(p::Pose, u::Control) = Pose(p.x - u.dx, p.hd - u.dhd)
+
 Base.broadcastable(p::Pose) = [p]
 
 LinearAlgebra.norm(p::Pose) = LinearAlgebra.norm(Vector(p))
 
-export Pose, headdirection, position, tuple, normalize!
+export Pose, headdirection, position, tuple, normalize!, normalize_hd
 
 @doc raw"""
     Mat(p::Pose)
@@ -56,14 +67,16 @@ export Pose, headdirection, position, tuple, normalize!
 Matrix representation of pose `p`.
 Transforms from pose's coordinates to global coordinates
 """
-Mat(p::Pose) = [rot(p.hd) p.x; [0 0 1]]
+mat(p::Pose) = [rot(p.hd) p.x; [0 0 1]]
 
 raw"""
     Inv(p::Pose)
 
 Transforms into pose's ``egocentric'' coordinate system.
 """
-Inv(p::Pose) = [rot(-p.hd) -rot(-p.hd)*p.x; [0 0 1]]
+# Inv(p::Pose) = [rot(-p.hd) -rot(-p.hd)*p.x; [0 0 1]]
+inv(p::Pose) = Pose(-rot(-p.hd)*p.x, -p.hd)
+export inv
 
 # Syntactic sugar
 Base.:(*)(x::Vector{Float64}, q::Pose) = rot( q.hd)*(x      ) + q.x
@@ -118,8 +131,3 @@ function Plots.plot!(p::Pose; r=0.5, n=30, args...)
     plot!(r*sin.(θs) .+ x, r*cos.(θs) .+ y,      label=nothing; args...)
     plot!([x, x + r*cos(hd)],[y, y + r*sin(hd)], label=nothing; args...)
 end
-
-struct Control
-    dx::Vector{Float64}
-    dhd::Float64
-end;

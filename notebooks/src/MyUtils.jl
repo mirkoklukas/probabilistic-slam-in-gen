@@ -29,9 +29,11 @@ export unit_vec, polar, angle, stack, peak_to_peak, euclidean, polar_inv
 
 """Stacks vectors on top of each other (as rows, along dim 1)"""
 stack(xs::AbstractVector) = reduce(vcat, transpose.(xs));
+unstack(x::Matrix) = [x[i,:] for i=1:size(x,1)]
 """Stacks vectors horizontally (along dim 2)"""
 hstack(xs::AbstractVector) = reduce(hcat,xs);
-export stack, hstack
+
+export stack, hstack, unstack
 
 rot(hd) = [[cos(hd) -sin(hd)]; [sin(hd) cos(hd)]]
 
