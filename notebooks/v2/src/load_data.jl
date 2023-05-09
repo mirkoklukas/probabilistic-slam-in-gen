@@ -8,11 +8,9 @@
 #                                   #
 # # # # # # # # # # # # # # # # # # #
 
-push!(LOAD_PATH, "../src");
 using JLD2
 using StatsBase: mean
 using Geometry: bounding_box, Segment
-using GridSlam: Pose, Measurement, Control
 
 fname = "../data/data_4.jld2"
 d = load_object(fname)
