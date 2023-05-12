@@ -17,10 +17,13 @@ using MyUtils # ../src
 using GenDistributionZoo: diagnormal
 using Test
 
-"""
-    log_p = gaussian_logpdf(x, mu, sig)
+MyUtils.polar_inv(z::CuArray, a::CuArray) = cat(z.*cos.(a), z.*sin.(a), dims=ndims(a)+1);
 
-Benchmarked in `33 - CUDA Accelerated Gen Distributions`.
+"""
+```julia
+    log_p = gaussian_logpdf(x, mu, sig)
+````
+Broadcastable Gaussian logpdf -- benchmarked in `33 - CUDA Accelerated Gen Distributions`.
 """
 function gaussian_logpdf(x, mu, sig)
     d = (x .- mu).^2 ./ sig.^2
@@ -30,27 +33,45 @@ end;
 
 """
 ```julia
-    logsumexp(x; dims)
+  logsumexp_slice(x; dims)
 ```
 Applies `logsumexp` along specified dimensions.
+
+
+Benchmarks
+```julia
+x: (2000, 2000)
+dims: 2
+with `check_inf`
+  CPU  >>  49.887 ms (26 allocations: 30.57 MiB)
+  CUDA >> 355.932 μs (367 allocations: 19.55 KiB)
+
+without `check_inf`
+  CPU  >>  54.482 ms (20 allocations: 30.56 MiB)
+  CUDA >>  69.461 μs (142 allocations: 8.06 KiB)
+```
 """
-function Gen.logsumexp(x; dims)
+function logsumexp_slice(x::Union{CuArray, Array}; dims, check_inf=true)
     c = maximum(x, dims=dims)
     y = c .+ log.(sum(exp.(x .- c), dims=dims))
-    y[isnan.(y)] .= - Inf
+    # Todo: Should we also check for `+Inf`?
+    if check_inf
+        y[c .== -Inf] .= - Inf
+    end
     return y
 end;
 
 """
+```julia
     griddims = cuda_grid(datadims::Tuple{Vararg{Int}},
                          blockdims::Tuple{Vararg{Int}})
-
+```
 Given data dimensions `datadims` and number of threads
 in each dimension `blockdims` returns the respective
-grid dimensions `griddims` such that
-
+grid dimensions `griddims` such that for each `i` we have
+```julia
     griddims[i] = ceil(Int, datadims[i]/blockdims[i])
-
+```
 """
 function cuda_grid(datadims::Tuple{Vararg{Int}}, blockdims::Tuple{Vararg{Int}})
     griddims = ceil.(Int, datadims./blockdims)
@@ -59,8 +80,9 @@ end
 
 # Todo: handle wrap around and padding smarter?
 """
-    slw_kernel!(x, y, w, pad, fill_val)
-
+```julia
+    slw_kernel!(x, y, w::Int, wrap::Bool, fill::Bool, fill_val::Float64)
+```
 CUDA kernel to compute sliding windows.
 Takes CuArrays of shape `(k,n)` and `(k,n,2w+1)`...
 """
@@ -115,7 +137,7 @@ end
 
 """
 ```julia
-    y = slw_cu!(x::CuArray, w::Int; blockdims=(8,8,4), wrap=false, pad_val=nothing)
+    y_ = slw_cu!(x_::CuArray, w::Int; blockdims=(8,8,4), wrap=false, fill=false, fill_val=Inf)
 ```
 CUDA-accelerated function computing sliding windows.
 Takes a CuArray of shape `(k,n)` and returns a CuArray
@@ -137,8 +159,6 @@ function slw_cu!(x::CuArray, w::Int; blockdims=(8,8,4), wrap=false, fill=false, 
 
     return y
 end;
-
-MyUtils.polar_inv(z::CuArray, a::CuArray) = cat(z.*cos.(a), z.*sin.(a), dims=ndims(a)+1);
 
 """
     ys_tilde_ = get_ys_tilde_cu(zs_::CuArray, w::Int)
@@ -193,7 +213,7 @@ function get_2d_mixture_components(z_::CuArray, a_::CuArray, w::Int;
     ỹ_[isnan.(ỹ_)] .= Inf
 
     return ỹ_
-end
+end;
 
 """
 ```julia
@@ -226,7 +246,7 @@ function sensor_logpdf(x, ỹ, sig, outlier, outlier_vol=1.0; return_pointwise=f
     #   Convert to mixture of `gm` and `outlier` (k,n,1,1)
     log_p = gaussian_logpdf(x, ỹ, sig)
     log_p = sum(log_p, dims=4)
-    log_p = logsumexp(log_p .- log(m), dims=3)
+    log_p = logsumexp_slice(log_p .- log(m), dims=3)
     log_p = log.((1 .- outlier).*exp.(log_p) .+ outlier./outlier_vol)
 
     # If we don't need pointwise logprobs
@@ -242,36 +262,22 @@ function sensor_logpdf(x, ỹ, sig, outlier, outlier_vol=1.0; return_pointwise=f
 
     return log_p, pointwise
 end
-# Todo: Make sure we handle Inf's in y correctly (that might come from sliding window fills)?
+# Todo: Make sure we handle Inf's in y correctly --
+#       that might come from sliding window fills?
 
+# Backwards compatibility --
 # Same as `sensor_logpdf` above
-# (backwards compatibility)
-"""
-```julia
-    sensor_smc_logpdf_cu(x, y, sig, outlier, outlier_vol; return_pointwise=false)
-```
-Evaluates an observation `x` under the 2dp3 likelihood with <br/>
-a family of mixture components `ys` and parameters `sig`, `outlier`, and `outlier_vol`.
-
-Arguments:
- - `x`:  Observation point cloud `(n,2)`
- - `ys`: Family of mixture components `(k,n,m,2)`
- - ...
-
-Returns:
- - `log_ps`: Logprobs `(k,)`
- - `ptw`:    Logprobs of each observation point `(k,n)`
-"""
 function sensor_smc_logpdf_cu(x, y, sig, outlier, outlier_vol; return_pointwise=false)
     return sensor_logpdf(x, y, sig, outlier, outlier_vol; return_pointwise=return_pointwise)
-end
+end;
 
 struct SensorDistribution_CUDA <: Distribution{Vector{Vector{Float64}}}
 end
 
 """
-    x::Vector{Vector{Float64}} = sensordist_cu(ỹ_::CuArray, sig, outlier, outlier_vol=1.0)
-
+```julia
+    x = sensordist_cu(ỹ_::CuArray, sig, outlier, outlier_vol=1.0)::Vector{Vector{Float64}}
+```
 Distribution from the 2dp3-likelihood. Takes 2d-mixture components `ỹ_` and
 samples a vector `x` of 2d points.
 
@@ -363,7 +369,7 @@ function get_1d_mixture_components(z_, a_, w, sig;
 
     # Compute normalized mixture weights
     w̃_ = gaussian_logpdf(d̃_, 0.0, sig)
-    w̃_ = w̃_ .- logsumexp(w̃_, dims=3)
+    w̃_ = w̃_ .- logsumexp_slice(w̃_, dims=3)
 
     return ỹ_, w̃_
 end;
@@ -388,7 +394,7 @@ Returns:
 function sensor_logpdf_1d(z, ỹ, w̃, sig, outlier, outlier_vol; return_pointwise=false)
 
     log_ps = gaussian_logpdf(z, ỹ, sig)
-    log_ps = logsumexp(log_ps .+ w̃, dims=3)
+    log_ps = logsumexp_slice(log_ps .+ w̃, dims=3)
     log_ps = log.((1 .- outlier).*exp.(log_ps) .+ outlier./outlier_vol)
 
     ptw = nothing

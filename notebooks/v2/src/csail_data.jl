@@ -9,6 +9,7 @@
 # # # # # # # # # # # # # # # # # # #
 
 import JSON
+using Fmt
 using MyUtils: polar_inv
 SLAM_DATA_KEYS = ["z", "a", "x", "hd", "dx", "dhd"]
 
@@ -57,5 +58,5 @@ _num_a = length(_as)
 println("Loading `$(fname)` ...\n")
 for x in [:_zs, :_zs_inf, :_as, :_zmax, :_ys, :_ys_inf, :_num_a, :_xs, :_hds, :_ps, :_dxs, :_dhds, :_us, :_T]
     local y = getproperty(Main,x)
-    println("\t$(x) \t$(typeof(y))")
+    println(f"\t{$(x):<10s} {$(typeof(y))}")
 end

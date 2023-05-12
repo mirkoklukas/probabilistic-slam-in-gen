@@ -73,8 +73,9 @@ function cuda_grid(datadims::Tuple{Vararg{Int}}, blockdims::Tuple{Vararg{Int}})
 end
 
 """
+```julia
     cast_kernel!(z, y, x, hd, fov, cell_rad)
-
+```
 Collects `n` depth measurements in an obs array `z` of shape `(n, a)`
 from `n` poses given by arrays `x` and `hd` of shape `(n,2)` and `(n,)`
 and a point cloud `y` of shape `(m,2)`.
@@ -136,6 +137,7 @@ function cast_kernel!(z, y, p, fov, cell_rad)
     return
 end
 
+
 """
     cast_cu!(z_, y_, p_; fov=π, cell_rad=0.005, blockdims=(16,16))
 
@@ -151,4 +153,28 @@ function cast_cu!(z_, y_, p_; fov=π, cell_rad=0.01, blockdims=(16,16))
     CUDA.@sync begin
         @cuda threads=blockdims blocks=griddims cast_kernel!(z_, y_, p_, fov, cell_rad)
     end
+end;
+
+
+"""
+```julia
+    zs_ = cast_cu(ps_::CuArray, ys_::CuArray;
+                  fov=2π, num_a=361, zmax=Inf, cell_rad=0.01)
+```
+Computes depth measurements `zs_` with respect to a family of stacked poses `ps_`
+and family of stacked 2d points `ys_` along a fixed number `num_a` of
+equidistantly spaced angles in the field of view `fov`.
+
+Arguments:
+ - `ps_`: Stack of poses `(k, 3)`
+ - `ys_`: Reference point cloud `(n, 2)`
+ - ...
+
+ Returns:
+ - `zs_`: Depth measurements in the field of view `(k, num_a)`
+"""
+function cast_cu(ps_::CuArray, ys_::CuArray; fov=2π, num_a=361, zmax=Inf, cell_rad=0.05)
+    zs_ = zmax*CUDA.ones(size(ps_, 1), num_a)
+    cast_cu!(zs_, ys_, ps_; fov=fov, cell_rad=cell_rad)
+    return zs_
 end;
