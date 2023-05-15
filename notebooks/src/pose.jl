@@ -30,9 +30,10 @@ mutable struct Control
     dhd::Float64
 end;
 
-Pose(x1, x2, hd) = Pose([x1;x2],hd)
+Pose(x1, x2, hd)         = Pose([x1;x2],hd)
 Pose(x::Vector{Float64}) = Pose(x[1:2], x[3])
-Pose() = Pose([0;0], 0)
+Pose()                   = Pose([0;0], 0)
+Base.Vector(p::Pose)     = [p.x;p.hd]
 
 normalize_hd(hd::Real) = mod(hd + π, 2π) - π
 function normalize!(p::Pose)
@@ -40,7 +41,6 @@ function normalize!(p::Pose)
     return p
 end
 
-Base.Vector(p::Pose)   = [p.x;p.hd]
 headdirection(p::Pose) = p.hd
 position(p::Pose)      = p.x
 tuple(p::Pose)         = (p.x, p.hd)
@@ -52,14 +52,21 @@ Base.getindex(p::Pose, i::Int)    = [p.x, p.hd][i]
 Base.:(+)(p::Pose, x::Vector{Float64}) = Pose(p.x + x, p.hd)
 Base.:(+)(p::Pose, hd::Float64) = Pose(p.x, p.hd + hd)
 Base.:(+)(u::Control, v::Control) = Control(u.dx + v.dx, u.dhd + v.dhd)
+
+Base.broadcastable(p::Pose) = [p]
+LinearAlgebra.norm(p::Pose) = LinearAlgebra.norm(Vector(p))
+
+
+
+Control(x1, x2, hd)         = Control([x1;x2],hd)
+Control(x::Vector{Float64}) = Control(x[1:2], x[3])
+Base.Vector(u::Control)     = [u.dx;u.dhd]
+
 Base.:(+)(p::Pose, u::Control) = Pose(p.x + u.dx, p.hd + u.dhd)
 Base.:(-)(p::Pose, u::Control) = Pose(p.x - u.dx, p.hd - u.dhd)
 
-Base.broadcastable(p::Pose) = [p]
 
-LinearAlgebra.norm(p::Pose) = LinearAlgebra.norm(Vector(p))
-
-export Pose, headdirection, position, tuple, normalize!, normalize_hd
+export Pose, Control, headdirection, position, tuple, normalize!, normalize_hd
 
 @doc raw"""
     Mat(p::Pose)
@@ -74,7 +81,6 @@ raw"""
 
 Transforms into pose's ``egocentric'' coordinate system.
 """
-# Inv(p::Pose) = [rot(-p.hd) -rot(-p.hd)*p.x; [0 0 1]]
 inv(p::Pose) = Pose(-rot(-p.hd)*p.x, -p.hd)
 export inv
 
