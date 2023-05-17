@@ -124,6 +124,7 @@ function cast_kernel!(Z, X, P, fov=2π)
     return
 end
 
+
 function cast_cu!(Z, X, P; fov=2π, blockdims=(16,16))
     n = size(X,1)
     m = size(P,1)
@@ -133,3 +134,26 @@ function cast_cu!(Z, X, P; fov=2π, blockdims=(16,16))
         @cuda threads=blockdims blocks=griddims cast_kernel!(Z, X, P, fov)
     end
 end
+
+
+"""
+```julia
+    zs_ = cast_cu(ps_::CuArray, segs_::CuArray; fov=2π, num_a::Int=361, zmax::Float64=Inf)
+```
+Computes depth measurements `zs_` with respect to a family of stacked poses `ps_`
+and family of stacked line segments `segs_` along a fixed number `num_a` of
+equidistantly spaced angles in the field of view `fov`.
+
+Arguments:
+ - `ps_`: Stacked poses `(k, 3)`
+ - `segs_`: Stacked line segments `(n, 4)`
+ - ...
+
+Returns:
+ - `zs_`: Depth measurements in the field of view `(k, num_a)`
+"""
+function cast_cu(ps_::CuArray, segs_::CuArray; fov=2π, num_a::Int=361, zmax::Float64=Inf)
+    zs_ = zmax*CUDA.ones(size(ps_, 1), num_a)
+    cast_cu!(zs_, segs_, ps_; fov=fov)
+    return zs_
+end;
