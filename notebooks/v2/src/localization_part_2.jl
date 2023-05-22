@@ -16,13 +16,13 @@ function perturb(u::Control, x_noise, hd_noise)
     return Control(dx,dhd)
 end
 
-@gen function slam_kernel(t, state, m, us, x_noise, hd_noise, w, s_noise, outlier, outliver_vol)
+@gen function slam_kernel(t, state, m, us, x_noise, hd_noise, w, s_noise, outlier, outlier_vol)
 
     p,_ = state
     u = us[t]
 
     p  = {:pose}   ~ motion_model(p, u, x_noise, hd_noise)
-    x  = {:sensor} ~ sensor_model(p, m, w, s_noise, outlier, outliver_vol)
+    x  = {:sensor} ~ sensor_model(p, m, w, s_noise, outlier, outlier_vol)
 
     state = (p, x)
 return state
@@ -36,17 +36,17 @@ Gen.@load_generated_functions
         us,
         p0, x0_noise, hd0_noise,
         x_noise, hd_noise,
-        w, s_noise, outlier, outliver_vol)
+        w, s_noise, outlier, outlier_vol)
 
     # Start the Markov chain;
     # No motion, just the prior
     p  = { :pose   } ~ pose_prior_model(p0, x0_noise, hd0_noise)
-    x  = { :sensor } ~ sensor_model(p, m, w, s_noise, outlier, outliver_vol) # GPU accelerated
+    x  = { :sensor } ~ sensor_model(p, m, w, s_noise, outlier, outlier_vol) # GPU accelerated
 
     # Unfold the MArkov chain
     chain ~ slam_chain(T, (p, nothing), m, us,
         x_noise, hd_noise,
-        w, s_noise, outlier, outliver_vol)
+        w, s_noise, outlier, outlier_vol)
 
     return [(p,x);chain]
 end
@@ -94,3 +94,22 @@ function plot_slam_trace!(tr; show_obs=true)
     end
     return myplot
 end
+
+argdiffs(bs::Array{T,1}) where T <: Real = Tuple(map(b -> Bool(b) ? UnknownChange() : NoChange(), bs));
+argdiffs([0,0.0,1.0, 1])
+
+@gen function pose_drift_proposal(tr, x_noise, hd_noise, vars=[:x,:hd])
+
+    T, = get_args(tr)
+    p  = get_pose(tr,T+1)
+
+    if :x in vars
+        x  = {add_addr_prefix(T, :pose => :x)}  ~ diagnormal(p.x, [x_noise, x_noise])
+    end
+
+    if :hd in vars
+        hd = {add_addr_prefix(T, :pose => :hd)} ~ normal(p.hd, hd_noise)
+    end
+
+    tr
+end;
