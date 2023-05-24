@@ -16,7 +16,7 @@ shared/
 shared
 local/
 local
-**/data/
+# **/data/
 
 # tensorboard runs folder and 
 # pytorch lightning stuff
