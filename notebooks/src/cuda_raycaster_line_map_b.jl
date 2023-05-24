@@ -244,15 +244,16 @@ Arguments:
 Returns:
  - `zs_`: Depth measurements in the field of view `(k, num_a)`
 """
-function cast_cu(ps_::CuArray, segs_::CuArray; fov=2π, num_a::Int=361, zmax::Float64=Inf)
+function cast_cu(ps_::CuArray, segs_::CuArray; fov=2π, num_a::Int=361, zmax::Float64=Inf, blockdims=(16,16))
     zs_ = zmax*CUDA.ones(size(ps_, 1), num_a)
-    cast_cu!(zs_, segs_, ps_; fov=fov)
+    cast_cu!(zs_, segs_, ps_; fov=fov, blockdims=blockdims)
     return zs_
 end;
 
 export cast_cu
 
 create_angles(fov, num_a) = [range(-fov/2, fov/2, num_a)...];
+export create_angles
 
 """
 ```julia
@@ -276,9 +277,11 @@ function cast(ps, segs; fov=2π, num_a::Int=361, zmax::Float64=Inf)
     if _cuda[]
         ps_   = CuArray(ps)
         segs_ = CuArray(segs)
-        zs_   = cast_cu!(ps_, segs_; fov=fov, num_a=num_a, zmax=zmax)
-        return Array(zs)
+        zs_   = cast_cu(ps_, segs_; fov=fov, num_a=num_a, zmax=zmax)
+        return Array(zs_)
     else
         return cast_cpu(ps, segs; fov=fov, num_a=num_a, zmax=zmax)
     end
 end;
+
+export cast
