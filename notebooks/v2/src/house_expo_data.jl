@@ -12,6 +12,7 @@ using JLD2
 using StatsBase: mean
 using Geometry: bounding_box, Segment
 using Fmt
+using MyUtils: summarize_vars
 
 fname = "../data/data_4.jld2"
 d = load_object(fname)
@@ -34,8 +35,5 @@ _us   = [Control(dx,dhd) for (dx,dhd) in zip(_dxs, _dhds)]
 
 _T = length(_xs);
 
-println("Loading `$(fname)` ...\n")
-for x in [:_segs, :_boxes, :_center, :_xs, :_hds, :_ps, :_dxs, :_dhds, :_us, :_T]
-    local y = getproperty(Main,x)
-    println(f"\t{$(x):<10s} {$(typeof(y))}")
-end
+println("Loading data from `$(fname)`, and\npopulating Main namespace with variables:\n")
+summarize_vars(:(_segs, _boxes, _center, _xs, _hds, _ps, _dxs, _dhds, _us, _T))

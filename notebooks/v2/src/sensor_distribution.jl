@@ -17,6 +17,14 @@ using MyUtils # ../src
 using GenDistributionZoo: diagnormal
 using Test
 
+# CUDA available?
+# > Reference: https://cuda.juliagpu.org/stable/installation/conditional/
+const _cuda = Ref(false)
+function __init__()
+    _cuda[] = CUDA.functional()
+end;
+__init__();
+
 MyUtils.polar_inv(z::CuArray, a::CuArray) = cat(z.*cos.(a), z.*sin.(a), dims=ndims(a)+1);
 
 """
@@ -54,12 +62,41 @@ without `check_inf`
 function logsumexp_slice(x::Union{CuArray, Array}; dims, check_inf=true)
     c = maximum(x, dims=dims)
     y = c .+ log.(sum(exp.(x .- c), dims=dims))
-    # Todo: Should we also check for `+Inf`?
+
+    # Note that if c is -Inf, then y will be NaN.
     if check_inf
         y[c .== -Inf] .= - Inf
     end
     return y
 end;
+
+import Compat
+using PaddedViews
+
+function slw_cpu(x, w ,s=1; wrap=false, fill=true, fill_val=Inf)
+    if fill
+        y = PaddedView(fill_val, x, size(x) .+ (0,2w), (1,w+1))
+    else
+        y = PaddedView(fill_val, x, size(x) .+ (0,2w), (1,w+1))
+        y = Array(y)
+        y[:,1:w] .= x[:,end-w+1:end]
+        y[:,end-w+1:end] .= x[:,1:w]
+    end
+    I = ((@view y[j, i:i+2w]) for j=1:size(y,1), i in 1:s:size(y,2)-2w)
+    y = Compat.stack(I)
+    return permutedims(y, (2,3,1))
+end;
+
+k = 500
+n = 500
+w = 20
+
+x = rand(k,n)
+y = slw_cpu(x,w)
+
+println(size(y))
+
+@btime slw_cpu(x,w)  samples=3 evals=3;
 
 """
 ```julia
@@ -113,7 +150,7 @@ function slw_kernel!(x, y, w::Int, wrap::Bool, fill::Bool, fill_val::Float64)
         offset = j_mix-1-w
 
         j = j_obs + offset
-        if wrap
+        if !fill
             j = mod(j - 1 , n) + 1
             val = x[j_pose, j]
         else
@@ -137,13 +174,13 @@ end
 
 """
 ```julia
-    y_ = slw_cu!(x_::CuArray, w::Int; blockdims=(8,8,4), wrap=false, fill=false, fill_val=Inf)
+    y_ = slw_cu(x_::CuArray, w::Int; blockdims=(8,8,4), wrap=false, fill=true, fill_val=Inf)
 ```
 CUDA-accelerated function computing sliding windows.
 Takes a CuArray of shape `(k,n)` and returns a CuArray
 of shape `(k,n,m)`, where `m = 2w+1`....
 """
-function slw_cu!(x::CuArray, w::Int; blockdims=(8,8,4), wrap=false, fill=false, fill_val=Inf)
+function slw_cu(x::CuArray, w::Int; blockdims=(8,8,4), wrap=false, fill=true, fill_val=Inf)
 
     k = size(x, 1)
     n = size(x, 2)
@@ -158,6 +195,28 @@ function slw_cu!(x::CuArray, w::Int; blockdims=(8,8,4), wrap=false, fill=false, 
     end
 
     return y
+end;
+
+"""
+    y = slw(x, w::Int; blockdims=(8,8,4), wrap=false, fill=false, fill_val=Inf)
+
+Function computing sliding windows, either on the CPU or GPU.
+Takes a CuArray of shape `(k,n)` and returns a CuArray
+of shape `(k,n,m)`, where `m = 2w+1`...
+"""
+function slw(x::Array, w::Int; blockdims=(8,8,4), wrap=false, fill=false, fill_val=Inf)
+    if _cuda[]
+        x_ = CuArray(x)
+        y_ = slw_cu(x_, w; blockdims=blockdims, wrap=wrap, fill=fill, fill_val=fill_val)
+        return Array(y_)
+    else
+        return slw_cpu(x, w;  wrap=wrap, fill=fill, fill_val=fill_val)
+    end
+end;
+
+function slw(x_::CuArray, w::Int; blockdims=(8,8,4), wrap=false, fill=false, fill_val=Inf)
+    y_ = slw_cu(x_, w; blockdims=blockdims, wrap=wrap, fill=fill, fill_val=fill_val)
+    return y_
 end;
 
 """
@@ -176,8 +235,8 @@ Computes the 2d mixture components for the "2dp3" likelihood from
 """
 function get_ys_tilde_cu(zs_::CuArray, as_::CuArray, w::Int; wrap=false, fill=false, fill_val=0.0)
 
-    zs_tilde_ = slw_cu!(zs_, w; blockdims=(8,8,4), wrap=wrap)
-    as_tilde_ = slw_cu!(reshape(as_,1,:), w; blockdims=(8,8,4), wrap=wrap)
+    zs_tilde_ = slw_cu(zs_, w; blockdims=(8,8,4), wrap=wrap)
+    as_tilde_ = slw_cu(reshape(as_,1,:), w; blockdims=(8,8,4), wrap=wrap)
     ys_tilde_ = polar_inv(zs_tilde_, as_tilde_)
 
     return ys_tilde_
@@ -205,14 +264,49 @@ Returns:
 function get_2d_mixture_components(z_::CuArray, a_::CuArray, w::Int;
                                    wrap=false, fill=true, fill_val_z=Inf, fill_val_a=Inf)
 
-    z̃_ = slw_cu!(             z_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
-    ã_ = slw_cu!(reshape(a_,1,:), w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
+    z̃_ = slw_cu(             z_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
+    ã_ = slw_cu(reshape(a_,1,:), w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
     ỹ_ = polar_inv(z̃_, ã_)
 
     # Handle Inf's and NaN
     ỹ_[isnan.(ỹ_)] .= Inf
 
     return ỹ_
+end;
+
+"""
+```julia
+    ỹ::Array = get_2d_mixture_components(z::Array, a::Array, w::Int;
+                                            wrap=false, fill=true,
+                                            fill_val_z=Inf, fill_val_a=Inf)
+```
+Computes the 2d mixture components for the "2dp3" likelihood from a family
+depth scans `z` along angles `a`, and with a filter radius of `w`.
+
+Arguments:
+ - `z`:    Range measurements `(k,n)`
+ - `a`:    Angles of measuremnts `(n,)`
+ - `w`:     Filter window size
+
+Returns:
+ - `ỹ`: Array of shape `(k, n, m, 2)`, where `m=2w+1`
+"""
+function get_2d_mixture_components(z::Array, a::Array, w::Int;
+                                   wrap=false, fill=true,
+                                   fill_val_z=Inf, fill_val_a=Inf)
+
+    if _cuda[]
+        z_ = CuArray(z)
+        a_ = CuArray(a)
+        ỹ_ = get_2d_mixture_components(z_, a_, w;
+                                        wrap=wrap, fill=fill,
+                                        fill_val_z=fill_val_z, fill_val_a=fill_val_a)
+        return Array(ỹ_)
+    else
+        return get_2d_mixture_components(z, a, w;
+                                         wrap=wrap, fill=fill,
+                                         fill_val_z=fill_val_z, fill_val_a=fill_val_a)
+    end
 end;
 
 """

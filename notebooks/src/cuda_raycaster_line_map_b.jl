@@ -16,6 +16,8 @@ using Colors, Plots
 col = palette(:default);
 import Base: @doc
 
+# CUDA available?
+# > Reference: https://cuda.juliagpu.org/stable/installation/conditional/
 const _cuda = Ref(false)
 function __init__()
     _cuda[] = CUDA.functional()
@@ -273,7 +275,7 @@ Arguments:
 Returns:
  - `zs`: Depth measurements in the field of view `(k, num_a)`
 """
-function cast(ps, segs; fov=2π, num_a::Int=361, zmax::Float64=Inf)
+function cast(ps::Array, segs::Array; fov=2π, num_a::Int=361, zmax::Float64=Inf)
     if _cuda[]
         ps_   = CuArray(ps)
         segs_ = CuArray(segs)
@@ -283,5 +285,9 @@ function cast(ps, segs; fov=2π, num_a::Int=361, zmax::Float64=Inf)
         return cast_cpu(ps, segs; fov=fov, num_a=num_a, zmax=zmax)
     end
 end;
+
+function cast(ps_::CuArray, segs_::CuArray; fov=2π, num_a::Int=361, zmax::Float64=Inf)
+    return cast_cu(ps_, segs_; fov=fov, num_a=num_a, zmax=zmax)
+end
 
 export cast
