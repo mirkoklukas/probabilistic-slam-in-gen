@@ -10,7 +10,7 @@
 
 import JSON
 using Fmt
-using MyUtils: polar_inv
+using MyUtils: polar_inv, summarize_vars
 SLAM_DATA_KEYS = ["z", "a", "x", "hd", "dx", "dhd"]
 
 """
@@ -56,7 +56,5 @@ _T     = length(_zs)
 _num_a = length(_as)
 
 println("Loading `$(fname)` ...\n")
-for x in [:_zs, :_zs_inf, :_as, :_zmax, :_ys, :_ys_inf, :_num_a, :_xs, :_hds, :_ps, :_dxs, :_dhds, :_us, :_T]
-    local y = getproperty(Main,x)
-    println(f"\t{$(x):<10s} {$(typeof(y))}")
-end
+summarize_vars(:(_zs, _zs_inf, _as, _zmax, _ys, _ys_inf, _num_a, _xs, _hds, _ps, _dxs, _dhds, _us, _T))
+println("")
