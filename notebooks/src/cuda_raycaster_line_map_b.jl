@@ -11,34 +11,11 @@
 push!(LOAD_PATH, "src");
 using MyUtils
 using CUDA
+using MyCudaUtils
 using BenchmarkTools
 using Colors, Plots
 col = palette(:default);
 import Base: @doc
-
-# CUDA available?
-# > Reference: https://cuda.juliagpu.org/stable/installation/conditional/
-const _cuda = Ref(false)
-function __init__()
-    _cuda[] = CUDA.functional()
-end;
-__init__();
-
-"""
-    griddims = cuda_grid(datadims::Tuple{Vararg{Int}},
-                         blockdims::Tuple{Vararg{Int}})
-
-Given data dimensions `datadims` and number of threads
-in each dimension `blockdims` returns the respective
-grid dimensions `griddims` such that
-
-    griddims[i] = ceil(Int, datadims[i]/blockdims[i])
-
-"""
-function cuda_grid(datadims::Tuple{Vararg{Int}}, blockdims::Tuple{Vararg{Int}})
-    griddims = ceil.(Int, datadims./blockdims)
-    return griddims
-end
 
 function line_intersection(x1, x2, x1′, x2′, y1, y2, y1′, y2′)
     dx1, dx2 = x1′ - x1, x2′ - x2

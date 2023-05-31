@@ -19,8 +19,9 @@ const _cuda = Ref(false)
 function __init__()
     _cuda[] = CUDA.functional()
 end;
+DeviceArray(x) = _cuda[] ? CuArray(x) : Array(x);
 
-export _cuda
+export _cuda, DeviceArray
 
 """
     griddims = cuda_grid(datadims::Tuple{Vararg{Int}},

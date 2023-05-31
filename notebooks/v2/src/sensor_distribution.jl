@@ -13,20 +13,12 @@ push!(LOAD_PATH, ENV["probcomp"]*"/Gen-Distribution-Zoo/src");
 using BenchmarkTools
 using CUDA
 using Gen
-using MyUtils # ../src
+using MyUtils
+using MyCudaUtils
 using GenDistributionZoo: diagnormal
 using Test
 
-# CUDA available?
-# > Reference: https://cuda.juliagpu.org/stable/installation/conditional/
-const _cuda = Ref(false)
-function __init__()
-    _cuda[] = CUDA.functional()
-end;
-__init__();
-
 MyUtils.polar_inv(z::CuArray, a::CuArray) = cat(z.*cos.(a), z.*sin.(a), dims=ndims(a)+1);
-MyUtils.polar_inv(z::Array, a::Array) = cat(z.*cos.(a), z.*sin.(a), dims=ndims(a)+1);
 
 """
 ```julia
@@ -87,23 +79,6 @@ function slw_cpu(x, w ,s=1; wrap=false, fill=true, fill_val=Inf)
     y = Compat.stack(I)
     return permutedims(y, (2,3,1))
 end;
-
-"""
-```julia
-    griddims = cuda_grid(datadims::Tuple{Vararg{Int}},
-                         blockdims::Tuple{Vararg{Int}})
-```
-Given data dimensions `datadims` and number of threads
-in each dimension `blockdims` returns the respective
-grid dimensions `griddims` such that for each `i` we have
-```julia
-    griddims[i] = ceil(Int, datadims[i]/blockdims[i])
-```
-"""
-function cuda_grid(datadims::Tuple{Vararg{Int}}, blockdims::Tuple{Vararg{Int}})
-    griddims = ceil.(Int, datadims./blockdims)
-    return griddims
-end
 
 # Todo: handle wrap around and padding smarter?
 """
@@ -188,13 +163,26 @@ function slw_cu(x::CuArray, w::Int; blockdims=(8,8,4), wrap=false, fill=true, fi
 end;
 
 """
+    y_ = slw(x_, w::Int; blockdims=(8,8,4), wrap=false, fill=false, fill_val=Inf)
+
+Function computing sliding windows, on the GPU.
+Takes a CuArray of shape `(k,n)` and returns an CuArray
+of shape `(k,n,m)`, where `m = 2w+1`...
+"""
+function slw(x_::CuArray, w::Int; blockdims=(8,8,4), wrap=false, fill=false, fill_val=Inf)
+    y_ = slw_cu(x_, w; blockdims=blockdims, wrap=wrap, fill=fill, fill_val=fill_val)
+    return y_
+end;
+
+"""
     y = slw(x, w::Int; blockdims=(8,8,4), wrap=false, fill=false, fill_val=Inf)
 
 Function computing sliding windows, either on the CPU or GPU.
-Takes a CuArray of shape `(k,n)` and returns a CuArray
+Takes an Array of shape `(k,n)` and returns an Array
 of shape `(k,n,m)`, where `m = 2w+1`...
 """
 function slw(x::Array, w::Int; blockdims=(8,8,4), wrap=false, fill=false, fill_val=Inf)
+    # Todo: Is that a good pattern??
     if _cuda[]
         x_ = CuArray(x)
         y_ = slw_cu(x_, w; blockdims=blockdims, wrap=wrap, fill=fill, fill_val=fill_val)
@@ -204,24 +192,11 @@ function slw(x::Array, w::Int; blockdims=(8,8,4), wrap=false, fill=false, fill_v
     end
 end;
 
-function slw(x_::CuArray, w::Int; blockdims=(8,8,4), wrap=false, fill=false, fill_val=Inf)
-    y_ = slw_cu(x_, w; blockdims=blockdims, wrap=wrap, fill=fill, fill_val=fill_val)
-    return y_
-end;
-
+# DEPRECIATED
 """
-    ys_tilde_ = get_ys_tilde_cu(zs_::CuArray, w::Int)
+    ỹ_::CuArray = get_ys_tilde_cu(zs_::CuArray, w::Int)
 
-Computes the 2d mixture components for the "2dp3" likelihood from
-    depth measurements `zs_` along angles `as_`, and with a filter radius of `w`.
-
-    Arguments:
-            zs_: Range measurements `(k,n)`
-            as_: Angles of measuremnts `(n,)`
-            w:   Filter window radius
-
-    Returns:
-        CuArray of shape `(k, n, 2w+1, 2)`
+DEPRECIATED, use `get_2d_mixture_components` instead.
 """
 function get_ys_tilde_cu(zs_::CuArray, as_::CuArray, w::Int; wrap=false, fill=false, fill_val=0.0)
 
@@ -252,13 +227,16 @@ Returns:
  - `ỹ_`: CuArray of shape `(k, n, m, 2)`, where `m=2w+1`
 """
 function get_2d_mixture_components(z_::CuArray, a_::CuArray, w::Int;
-                                   wrap=false, fill=true, fill_val_z=Inf, fill_val_a=Inf)
+                                   wrap=false, fill=true, fill_val_z=Inf, fill_val_a=0.0)
 
-    z̃_ = slw_cu(             z_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
-    ã_ = slw_cu(reshape(a_,1,:), w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
+    a_ = reshape(a_,1,:)
+
+    z̃_ = slw_cu(z_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
+    ã_ = slw_cu(a_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
     ỹ_ = polar_inv(z̃_, ã_)
 
     # Handle Inf's and NaN
+    # Todo: Where were the NaNs coming from again? cos(Inf)?
     ỹ_[isnan.(ỹ_)] .= Inf
 
     return ỹ_
@@ -283,8 +261,9 @@ Returns:
 """
 function get_2d_mixture_components(z::Array, a::Array, w::Int;
                                    wrap=false, fill=true,
-                                   fill_val_z=Inf, fill_val_a=Inf)
+                                   fill_val_z=Inf, fill_val_a=0.0)
 
+    # Todo: Is that a good pattern??
     if _cuda[]
         z_ = CuArray(z)
         a_ = CuArray(a)
@@ -293,11 +272,13 @@ function get_2d_mixture_components(z::Array, a::Array, w::Int;
                                         fill_val_z=fill_val_z, fill_val_a=fill_val_a)
         return Array(ỹ_)
     else
-        z̃ = slw(             z, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
-        ã = slw(reshape(a,1,:), w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
+        a = reshape(a,1,:)
+        z̃ = slw(z, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
+        ã = slw(a, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
         ỹ = polar_inv(z̃, ã)
 
         # Handle Inf's and NaN
+        # Todo: Where were the NaNs coming from again? cos(Inf)?
         ỹ[isnan.(ỹ)] .= Inf
 
         return ỹ
@@ -357,11 +338,14 @@ end
 
 # Backwards compatibility --
 # Same as `sensor_logpdf` above
+"""
+DEPRECIATED, use `sensor_logpdf` instead.
+"""
 function sensor_smc_logpdf_cu(x, y, sig, outlier, outlier_vol; return_pointwise=false)
     return sensor_logpdf(x, y, sig, outlier, outlier_vol; return_pointwise=return_pointwise)
 end;
 
-struct SensorDistribution_CUDA <: Distribution{Vector{Vector{Float64}}}
+struct SensorDistribution2DP3 <: Distribution{Vector{Vector{Float64}}}
 end
 
 """
@@ -377,9 +361,9 @@ Arguments:
 Returns:
 - `x`: Observation vector of 2d points.
 """
-const sensordist_cu = SensorDistribution_CUDA()
+const sensordist_2dp3 = SensorDistribution2DP3()
 
-function Gen.logpdf(::SensorDistribution_CUDA, x, ỹ_::CuArray, sig, outlier, outlier_vol=1.0)
+function Gen.logpdf(::SensorDistribution2DP3, x, ỹ_::CuArray, sig, outlier, outlier_vol=1.0)
     n = size(ỹ_, 1)
     m = size(ỹ_, 2)
 
@@ -390,19 +374,18 @@ function Gen.logpdf(::SensorDistribution_CUDA, x, ỹ_::CuArray, sig, outlier, o
     return CUDA.@allowscalar log_p[1]
 end
 
-function Gen.logpdf(::SensorDistribution_CUDA, x, ỹ::Array, sig, outlier, outlier_vol=1.0)
-
+function Gen.logpdf(::SensorDistribution2DP3, x, ỹ::Array, sig, outlier, outlier_vol=1.0)
     n = size(ỹ, 1)
     m = size(ỹ, 2)
 
     x = stack(x)
     ỹ = reshape(ỹ, 1, n, m, 2)
 
-    log_p, = sensor_logpdf(x, ỹ, sig, outlier, outlier_vol) # CuArray of length 1
-    return CUDA.@allowscalar log_p[1]
+    log_p, = sensor_logpdf(x, ỹ, sig, outlier, outlier_vol) # Array of length 1
+    return log_p[1]
 end
 
-function Gen.random(::SensorDistribution_CUDA, ỹ_::CuArray, sig, outlier, outlier_vol=1.0)
+function Gen.random(::SensorDistribution2DP3, ỹ_::CuArray, sig, outlier, outlier_vol=1.0)
     n = size(ỹ_,1)
     m = size(ỹ_,2)
 
@@ -425,7 +408,7 @@ function Gen.random(::SensorDistribution_CUDA, ỹ_::CuArray, sig, outlier, outl
     return x
 end
 
-function Gen.random(::SensorDistribution_CUDA, ỹ::Array, sig, outlier, outlier_vol=1.0)
+function Gen.random(::SensorDistribution2DP3, ỹ::Array, sig, outlier, outlier_vol=1.0)
     n = size(ỹ,1)
     m = size(ỹ,2)
 
@@ -446,11 +429,13 @@ function Gen.random(::SensorDistribution_CUDA, ỹ::Array, sig, outlier, outlier
     end
 
     return x
-end
+end;
 
-(D::SensorDistribution_CUDA)(args...)             = Gen.random(D, args...)
-Gen.has_output_grad(::SensorDistribution_CUDA)    = false
-Gen.has_argument_grads(::SensorDistribution_CUDA) = (false, false);
+(D::SensorDistribution2DP3)(args...) = Gen.random(D, args...)
+
+# TODO: Add output and arg grads.
+Gen.has_output_grad(::SensorDistribution2DP3)    = false
+Gen.has_argument_grads(::SensorDistribution2DP3) = (false, false);
 
 """
 ```julia
