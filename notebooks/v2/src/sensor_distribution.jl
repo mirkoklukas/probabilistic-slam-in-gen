@@ -26,6 +26,7 @@ end;
 __init__();
 
 MyUtils.polar_inv(z::CuArray, a::CuArray) = cat(z.*cos.(a), z.*sin.(a), dims=ndims(a)+1);
+MyUtils.polar_inv(z::Array, a::Array) = cat(z.*cos.(a), z.*sin.(a), dims=ndims(a)+1);
 
 """
 ```julia
@@ -292,9 +293,14 @@ function get_2d_mixture_components(z::Array, a::Array, w::Int;
                                         fill_val_z=fill_val_z, fill_val_a=fill_val_a)
         return Array(ỹ_)
     else
-        return get_2d_mixture_components(z, a, w;
-                                         wrap=wrap, fill=fill,
-                                         fill_val_z=fill_val_z, fill_val_a=fill_val_a)
+        z̃ = slw(             z, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
+        ã = slw(reshape(a,1,:), w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
+        ỹ = polar_inv(z̃, ã)
+
+        # Handle Inf's and NaN
+        ỹ[isnan.(ỹ)] .= Inf
+
+        return ỹ
     end
 end;
 
