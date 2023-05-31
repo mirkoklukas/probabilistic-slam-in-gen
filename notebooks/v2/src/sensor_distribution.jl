@@ -87,17 +87,6 @@ function slw_cpu(x, w ,s=1; wrap=false, fill=true, fill_val=Inf)
     return permutedims(y, (2,3,1))
 end;
 
-k = 500
-n = 500
-w = 20
-
-x = rand(k,n)
-y = slw_cpu(x,w)
-
-println(size(y))
-
-@btime slw_cpu(x,w)  samples=3 evals=3;
-
 """
 ```julia
     griddims = cuda_grid(datadims::Tuple{Vararg{Int}},
@@ -325,7 +314,7 @@ Returns:
  - `log_ps`: Log-probs `(k,)`
  - `ptw`:    Pointwise log-probs for each observation point `(k,n)`
 """
-function sensor_logpdf(x, ỹ, sig, outlier, outlier_vol=1.0; return_pointwise=false)
+function sensor_logpdf(x, ỹ, sig, outlier, outlier_vol=1.0; return_pointwise=false, return_outliermap=false)
     @assert size(x,1) == size(ỹ,2)
 
     k = size(ỹ,1)
@@ -337,10 +326,11 @@ function sensor_logpdf(x, ỹ, sig, outlier, outlier_vol=1.0; return_pointwise=f
     #   Compute 1D Gaussians (k,n,m,2)
     #   Convert to 2D gausians (k,n,m,1)
     #   Convert to mixture `gm` of m 2D gausians (k,n,1,1)
-    #   Convert to mixture of `gm` and `outlier` (k,n,1,1)
     log_p = gaussian_logpdf(x, ỹ, sig)
     log_p = sum(log_p, dims=4)
     log_p = logsumexp_slice(log_p .- log(m), dims=3)
+
+    #  Convert to mixture of `gm` and `outlier` (k,n,1,1)
     log_p = log.((1 .- outlier).*exp.(log_p) .+ outlier./outlier_vol)
 
     # If we don't need pointwise logprobs
@@ -383,7 +373,6 @@ Returns:
 """
 const sensordist_cu = SensorDistribution_CUDA()
 
-# Todo:
 function Gen.logpdf(::SensorDistribution_CUDA, x, ỹ_::CuArray, sig, outlier, outlier_vol=1.0)
     n = size(ỹ_, 1)
     m = size(ỹ_, 2)
@@ -392,6 +381,18 @@ function Gen.logpdf(::SensorDistribution_CUDA, x, ỹ_::CuArray, sig, outlier, o
     ỹ_ = reshape(ỹ_, 1, n, m, 2)
 
     log_p, = sensor_logpdf(x_, ỹ_, sig, outlier, outlier_vol) # CuArray of length 1
+    return CUDA.@allowscalar log_p[1]
+end
+
+function Gen.logpdf(::SensorDistribution_CUDA, x, ỹ::Array, sig, outlier, outlier_vol=1.0)
+
+    n = size(ỹ, 1)
+    m = size(ỹ, 2)
+
+    x = stack(x)
+    ỹ = reshape(ỹ, 1, n, m, 2)
+
+    log_p, = sensor_logpdf(x, ỹ, sig, outlier, outlier_vol) # CuArray of length 1
     return CUDA.@allowscalar log_p[1]
 end
 
@@ -409,6 +410,29 @@ function Gen.random(::SensorDistribution_CUDA, ỹ_::CuArray, sig, outlier, outl
         else
             j   = rand(1:m)
             y   = Array(ỹ_[i,j,:])
+            x_i = diagnormal(y, [sig;sig])
+
+        end
+        push!(x, x_i)
+    end
+
+    return x
+end
+
+function Gen.random(::SensorDistribution_CUDA, ỹ::Array, sig, outlier, outlier_vol=1.0)
+    n = size(ỹ,1)
+    m = size(ỹ,2)
+
+    # Sample an observation point cloud `x`
+    x = Vector{Float64}[]
+    for i=1:n
+        if bernoulli(outlier)
+            # Todo: Change that to a uniform distribution, e.g. over a
+            #       circular area with radius `zmax`.
+            x_i = [Inf;Inf]
+        else
+            j   = rand(1:m)
+            y   = ỹ[i,j,:]
             x_i = diagnormal(y, [sig;sig])
 
         end
@@ -445,8 +469,8 @@ function get_1d_mixture_components(z_, a_, w, sig;
                                    wrap=false, fill=true,
                                    fill_val_z=Inf, fill_val_a=Inf)
     a_ = reshape(a_,1,:)
-    z̃_ = slw_cu!(z_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
-    ã_ = slw_cu!(a_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
+    z̃_ = slw(z_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
+    ã_ = slw(a_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
 
     # We compute the projection `ỹ` of the 2d mixtures onto
     # the ray through each pixel and their distance `d̃` to the rays.
