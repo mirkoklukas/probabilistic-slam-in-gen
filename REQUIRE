@@ -1,0 +1,23 @@
+BenchmarkTools v1.3.2
+CUDA v4.0.1
+Colors v0.12.10
+Compat v4.6.1
+Distributions v0.25.86
+Fmt v0.1.0 `https://github.com/bicycle1885/Fmt.jl#main`
+Formatting v0.4.2
+ForwardDiff v0.10.35
+Gen v0.4.5
+GenParticleFilters v0.2.1
+IJulia v1.24.0
+Images v0.25.2
+Interact v0.10.5
+IterTools v1.4.0
+JLD2 v0.4.31
+JSON v0.21.3
+LaTeXStrings v1.3.0
+PaddedViews v0.5.12
+Plots v1.38.7
+PyCall v1.95.1
+SpecialFunctions v2.2.0
+StatsBase v0.33.21
+Zygote v0.6.59

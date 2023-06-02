@@ -1,6 +1,7 @@
 # Probabilistic SLAM
 
 
+
 <u>**Map Types** and their respective **observation models:**</u> 
  
 1. [x] **Occupancy grid map**: 
@@ -16,10 +17,39 @@
 		- Different versions possible, e.g. could translate to point cloud
 	- [x] **Segment distributions** (almost like point cloud): 	
 
-3. [ ] **Point cloud map**:
+3. [x] **Point cloud map**:
 	- ...
 	- [x] **Deterministic Raycaster + Noise**
 		- Performance engineering needed (e.g. via Binning -- faster)
 		- Different versions possible, e.g. could translate to point cloud
-	- [ ] **Gaussian Mixtures**
+	- [x] **Gaussian Mixtures**
 		- Different versions possible... 3d3p vs full mixture  	 	
+
+
+# Dependencies
+
+Dependencies between my OWN files
+
+- Pose 
+    - My Utils
+
+- Geometry 
+    - My Utils 
+
+- CUDA Raycaster
+    - My Utils
+    - My CUDA Utils
+    
+- Custom Sensor Distribution
+    - My Utils
+    - My CUDA Utils
+
+- Localization -- Part 1
+    - Pose
+    - Geometry: Segments
+    - CUDA Raycaster
+    - Custom Sensor Distribution
+
+
+
+
