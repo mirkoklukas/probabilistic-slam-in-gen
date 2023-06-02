@@ -2,10 +2,10 @@
 
 ## Localization Tutorial
 
-Main Notebooks in `./v2/`
-- [Localization Tutorial - Part 1.ipynb](/v2/51%20-%20Localization%20Tutorial%20-%20Part%201.ipynb)
-- [Localization Turorial - Part 2.ipynb](/v2/52%20-%20Localization%20Tutorial%20-%20Part%202.ipynb)
-- [Localization Turorial - Part 3.ipynb](/v2/53%20-%20Localization%20Tutorial%20-%20Part%203.ipynb)
+Main Notebooks in `notebooks/v2/`
+- [Localization Tutorial - Part 1.ipynb](notebooks/v2/51%20-%20Localization%20Tutorial%20-%20Part%201.ipynb)
+- [Localization Turorial - Part 2.ipynb](notebooks/v2/52%20-%20Localization%20Tutorial%20-%20Part%202.ipynb)
+- [Localization Turorial - Part 3.ipynb](notebooks/v2/53%20-%20Localization%20Tutorial%20-%20Part%203.ipynb)
 
 Relevant notebooks:
 - `00 - My Utils.ipynb`
