@@ -20,8 +20,9 @@ Relevant notebooks:
 
 ### Requirements
 
-Run `setup.jl` to install the packages in the `REQUIRE` file.
-There is also a `Project.toml`...
+- Run `setup.jl` to install the packages in the `REQUIRE` file. There is also a `Project.toml`...
+- Clone https://github.com/mirkoklukas/Gen-Distribution-Zoo and add its source to the load path or set the environment variable "probcomp" to the folder you cloned this repo to. In the notebooks I call: `push!(LOAD_PATH, ENV["probcomp"]*"/Gen-Distribution-Zoo/src")`
+
 
 
 

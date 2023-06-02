@@ -4,11 +4,9 @@ function strip_quotes(str)
     if startswith(str, "`") || startswith(str, "\"")
         str = str[2:end]
     end
-
     if endswith(str, "`") || endswith(str, "\"")
         str = str[1:end-1]
     end
-
     return str
 end
 
