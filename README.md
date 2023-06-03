@@ -2,14 +2,14 @@
 
 ## **Localization Tutorial**
 
-### Notebooks
+### **Notebooks**
 
 The main notebooks with the actual tutorials can be found in `notebooks/v2/`:
 - [Localization Tutorial - Part 1.ipynb](notebooks/v2/51%20-%20Localization%20Tutorial%20-%20Part%201.ipynb)
 - [Localization Turorial - Part 2.ipynb](notebooks/v2/52%20-%20Localization%20Tutorial%20-%20Part%202.ipynb)
 - [Localization Turorial - Part 3.ipynb](notebooks/v2/53%20-%20Localization%20Tutorial%20-%20Part%203.ipynb)
 
-Overview of all relevant notebooks:
+Overview of all relevant notebooks and directories:
 ```
 notebooks/
 │
@@ -19,7 +19,8 @@ notebooks/
 │   11 - Pose.ipynb
 │   31b - CUDA Raycaster - Line Map.ipynb
 │
-├───src/ (...source files compiled from nb's)
+├───src/  (...source files compiled from nb's)│
+├───data/ (...)
 │
 └───v2/
     │
@@ -31,15 +32,18 @@ notebooks/
     │   52 - Localization Tutorial - Part 2
     │   53 - Localization Tutorial - Part 3
     │
-    └───src/ (...source files compiled from nb's)
+    ├───src/   (...source files compiled from nb's)
+    └───_imgs/ (...where we store generated figures)
 ```
 
-### Requirements
+### **Setup**
 
 - Run `setup.jl` to install the packages in the `REQUIRE` file. This just calls `Pkg.add` on each of the entries in `REQUIRE`. 
 - There is a `Project.toml` as well.
+- You might want to create directories `notebooks/_imgs`, and `notebooks/v2/_imgs`. Note that in this repo we don't track files or folders with a leading underscore `_ignore_this.txt`; see the `.gitignore`.
 - Clone https://github.com/mirkoklukas/Gen-Distribution-Zoo and add its source to the load path or set the environment variable "probcomp" to the folder you cloned this repo to. In the notebooks I call: `push!(LOAD_PATH, ENV["probcomp"]*"/Gen-Distribution-Zoo/src")`
 
+## **Notes**
 
-
+In this repo we don't track files or folders with a leading underscore `_ignore_this.txt`; see the `.gitignore`.
 
