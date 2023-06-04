@@ -12,10 +12,11 @@ function Plots.plot!(ps::Vector{Pose}, cs::Vector{RGBA{Float64}}; r=0.5, args...
     return myplot
 end;
 
-function Plots.plot!(ps::Vector{Pose}; r=0.5, args...)
+function Plots.plot!(ps::Vector{Pose}; r=0.5, label=nothing, args...)
     myplot=nothing
-    for p in ps
-        myplot = plot!([p.x, p.x + r*unit_vec(p.hd)]; args...)
+    for (i,p) in enumerate(ps)
+        if i > 1 label=nothing end
+        myplot = plot!([p.x, p.x + r*unit_vec(p.hd)]; label=label, args...)
     end
     return myplot
 end;
