@@ -47,3 +47,28 @@ notebooks/
 
 In this repo we don't track files or folders with a leading underscore `_ignore_this.txt`; see the `.gitignore`.
 
+## **Notation and naming conventions**
+
+I usually try to keep variable naming concise and closer to the conventions found in mathematical papers, rather than those used in software engineering. I find that adopting this approach makes it easier to comprehend research code. However, it is essential to provide additional notes or documentation to provide context for interpreting variable names.
+
+```julia
+    x              = rand(2)  # Preferred
+    agent_position = rand(2)  # Sometimes OK as well
+
+    ỹ = sliding_windows(y, 10, 1)                      # Preferred
+    sliding_windows_over_y = sliding_windows(y, 10, 1) # Hard to parse
+    
+```
+
+In line with this practice, I make an effort to indicate CUDA arrays by appending a trailing underscore. For example, if we have an array `x`, its CUDA version would be denoted as `x_`:
+
+```julia
+    x  = rand(100,100)
+    x_ = CuArray(x)
+```
+
+Following a Python-inspired convention, I use leading underscores for contants or varibales that are not supposed to change. This allows me to reuse descriptive names without conflicting with constant values. Consequently, I can employ these informative names directly in the code that follows, ensuring clarity and readability.
+
+```julia
+    ps = [ p+u for (p, u) in zip(_ps, _us) ]
+```
