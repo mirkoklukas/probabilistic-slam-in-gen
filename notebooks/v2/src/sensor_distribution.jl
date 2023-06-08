@@ -14,11 +14,11 @@ using BenchmarkTools
 using CUDA
 using Gen
 using MyUtils
-using MyCudaUtils
+using MyCudaUtils # contains _cuda[] and cuda_grid
 using GenDistributionZoo: diagnormal
 using Test
 
-MyUtils.polar_inv(z::CuArray, a::CuArray) = cat(z.*cos.(a), z.*sin.(a), dims=ndims(a)+1);
+MyUtils.polar_inv(z::CuArray, a::CuArray) = z.* cat(cos.(a), sin.(a), dims=ndims(a)+1);
 
 """
 ```julia
@@ -30,6 +30,24 @@ function gaussian_logpdf(x, mu, sig)
     d = (x .- mu).^2 ./ sig.^2
     log_p = - log.(sig) .- log(sqrt(2π)) .- 1/2 * d
     return log_p
+end;
+
+using SpecialFunctions: erf
+"""
+```julia
+    log_c = gaussian_logcdf(x, mu, sig)
+````
+Broadcastable Gaussian logcdf
+"""
+function gaussian_logcdf(x, mu, sig)
+    d = (x .- mu)./(sig.*sqrt(2))
+    log_c = - log(2) .+ log.(1 .+ erf.(d))
+    return log_c
+end;
+
+function gaussian_cdf(x, mu, sig)
+    d = (x .- mu)./(sig.*sqrt(2))
+    return (1 .+ erf.(d))./2
 end;
 
 """
@@ -67,6 +85,9 @@ import Compat
 using PaddedViews
 
 function slw_cpu(x, w ,s=1; wrap=false, fill=true, fill_val=Inf)
+    # Todo: Enable to fill with the same value as the edges.
+    #       Test against the GPU version, which has the desired behaviour,
+    #       and make sure it's the same.
     if fill
         y = PaddedView(fill_val, x, size(x) .+ (0,2w), (1,w+1))
     else
@@ -115,7 +136,8 @@ function slw_kernel!(x, y, w::Int, wrap::Bool, fill::Bool, fill_val::Float64)
         offset = j_mix-1-w
 
         j = j_obs + offset
-        if !fill
+        if wrap
+            # Wrap around
             j = mod(j - 1 , n) + 1
             val = x[j_pose, j]
         else
@@ -123,8 +145,10 @@ function slw_kernel!(x, y, w::Int, wrap::Bool, fill::Bool, fill_val::Float64)
                 val = x[j_pose, j]
             else
                 if fill
+                    # Fill with fill value
                     val = fill_val
                 else
+                    # Fill with the edge values
                     j = max(min(j,n),1)
                     val = x[j_pose, j]
                 end
@@ -236,7 +260,9 @@ function get_2d_mixture_components(z_::CuArray, a_::CuArray, w::Int;
     ỹ_ = polar_inv(z̃_, ã_)
 
     # Handle Inf's and NaN
-    # Todo: Where were the NaNs coming from again? cos(Inf)?
+    # Todo: Where were the NaNs coming from again? They're coming from Inf * 0;
+    #       Could avoid that by choosing a fill value a such that cos(a) and sin(a) are non-zero,
+    #       or use a max z value < Inf.
     ỹ_[isnan.(ỹ_)] .= Inf
 
     return ỹ_
@@ -254,7 +280,7 @@ depth scans `z` along angles `a`, and with a filter radius of `w`.
 Arguments:
  - `z`:    Range measurements `(k,n)`
  - `a`:    Angles of measuremnts `(n,)`
- - `w`:     Filter window size
+ - `w`:    Filter window size
 
 Returns:
  - `ỹ`: Array of shape `(k, n, m, 2)`, where `m=2w+1`
@@ -273,12 +299,14 @@ function get_2d_mixture_components(z::Array, a::Array, w::Int;
         return Array(ỹ_)
     else
         a = reshape(a,1,:)
-        z̃ = slw(z, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
-        ã = slw(a, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
+        z̃ = slw_cpu(z, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
+        ã = slw_cpu(a, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
         ỹ = polar_inv(z̃, ã)
 
         # Handle Inf's and NaN
-        # Todo: Where were the NaNs coming from again? cos(Inf)?
+        # Todo: Where were the NaNs coming from again? They're coming from Inf * 0;
+        #       Could avoid that by choosing a fill value a such that cos(a) and sin(a) are non-zero,
+        #       or use a max z value < Inf.
         ỹ[isnan.(ỹ)] .= Inf
 
         return ỹ
@@ -293,15 +321,16 @@ Evaluates an observation `x` under the 2dp3 likelihood with <br/>
 a family of mixture components `ỹ` and parameters `sig`, `outlier`, and `outlier_vol`.
 
 Arguments:
- - `x`:  Observation point cloud `(n,2)`
+ - `x`: Observation point cloud `(n,2)`
  - `ỹ`: Family of mixture components `(k,n,m,2)`
- - ...
+ - `sig`: Std deviation of Gaussian mixture components; either a scalar or an array of shape `(1,1,1,1, ...)` (should be broadcastable with `outlier` and the rest)
+ - `outlier`: Outlier probability; either a scalar or an array of shape `(1,1,1,1, ...)` (should be broadcastable with `sig` and the rest)
 
 Returns:
- - `log_ps`: Log-probs `(k,)`
- - `ptw`:    Pointwise log-probs for each observation point `(k,n)`
+ - `log_ps`: Log-probs `(k,)` ,or `(k, ...)` in case of non-scalar `sig` and `outlier`
+ - `ptw`:    Pointwise log-probs for each observation point `(k,n)`  ,or `(k,n, ...)` in case of non-scalar `sig` and `outlier`
 """
-function sensor_logpdf(x, ỹ, sig, outlier, outlier_vol=1.0; return_pointwise=false, return_outliermap=false)
+function sensor_logpdf(x, ỹ, sig, outlier, outlier_vol; return_pointwise=false, return_outliermap=false)
     @assert size(x,1) == size(ỹ,2)
 
     k = size(ỹ,1)
@@ -309,7 +338,7 @@ function sensor_logpdf(x, ỹ, sig, outlier, outlier_vol=1.0; return_pointwise=f
     m = size(ỹ,3)
     x = reshape(x, 1, n, 1, 2)
 
-    # Line by line: ...
+    # Inlier probability (Gaussian mixtures).
     #   Compute 1D Gaussians (k,n,m,2)
     #   Convert to 2D gausians (k,n,m,1)
     #   Convert to mixture `gm` of m 2D gausians (k,n,1,1)
@@ -317,8 +346,18 @@ function sensor_logpdf(x, ỹ, sig, outlier, outlier_vol=1.0; return_pointwise=f
     log_p = sum(log_p, dims=4)
     log_p = logsumexp_slice(log_p .- log(m), dims=3)
 
-    #  Convert to mixture of `gm` and `outlier` (k,n,1,1)
-    log_p = log.((1 .- outlier).*exp.(log_p) .+ outlier./outlier_vol)
+    # Outlier probability
+    # and outlier map
+    # Todo: Find a better outlier prob?
+    #       Change outlier_vol = 2π*zmax^2?
+    log_out = - log(outlier_vol)
+    outliermap = nothing
+    if return_outliermap
+        outliermap = log.(1. .- outlier) .+ log_p .< log.(outlier) .+ log_out
+    end
+
+    # Convert to mixture of `gm` and `outlier` (k,n,1,1)
+    log_p = log.((1 .- outlier).*exp.(log_p) .+ outlier.*exp.(log_out))
 
     # If we don't need pointwise logprobs
     # we can save us the time and space to copy
@@ -331,7 +370,7 @@ function sensor_logpdf(x, ỹ, sig, outlier, outlier_vol=1.0; return_pointwise=f
     log_p = sum(log_p, dims=2)
     log_p = dropdims(log_p, dims=(2,3,4))
 
-    return log_p, pointwise
+    return log_p, pointwise, outliermap
 end
 # Todo: Make sure we handle Inf's in y correctly --
 #       that might come from sliding window fills?
@@ -363,7 +402,7 @@ Returns:
 """
 const sensordist_2dp3 = SensorDistribution2DP3()
 
-function Gen.logpdf(::SensorDistribution2DP3, x, ỹ_::CuArray, sig, outlier, outlier_vol=1.0)
+function Gen.logpdf(::SensorDistribution2DP3, x, ỹ_::CuArray, sig, outlier, outlier_vol)
     n = size(ỹ_, 1)
     m = size(ỹ_, 2)
 
@@ -374,7 +413,7 @@ function Gen.logpdf(::SensorDistribution2DP3, x, ỹ_::CuArray, sig, outlier, ou
     return CUDA.@allowscalar log_p[1]
 end
 
-function Gen.logpdf(::SensorDistribution2DP3, x, ỹ::Array, sig, outlier, outlier_vol=1.0)
+function Gen.logpdf(::SensorDistribution2DP3, x, ỹ::Array, sig, outlier, outlier_vol)
     n = size(ỹ, 1)
     m = size(ỹ, 2)
 
@@ -385,7 +424,9 @@ function Gen.logpdf(::SensorDistribution2DP3, x, ỹ::Array, sig, outlier, outli
     return log_p[1]
 end
 
-function Gen.random(::SensorDistribution2DP3, ỹ_::CuArray, sig, outlier, outlier_vol=1.0)
+# Todo: Speed up sampling, the Gen plug-and-play version is
+#       faster when sampling. Slow at evaluation.
+function Gen.random(::SensorDistribution2DP3, ỹ_::CuArray, sig, outlier, outlier_vol)
     n = size(ỹ_,1)
     m = size(ỹ_,2)
 
@@ -408,7 +449,7 @@ function Gen.random(::SensorDistribution2DP3, ỹ_::CuArray, sig, outlier, outli
     return x
 end
 
-function Gen.random(::SensorDistribution2DP3, ỹ::Array, sig, outlier, outlier_vol=1.0)
+function Gen.random(::SensorDistribution2DP3, ỹ::Array, sig, outlier, outlier_vol)
     n = size(ỹ,1)
     m = size(ỹ,2)
 
@@ -439,13 +480,13 @@ Gen.has_argument_grads(::SensorDistribution2DP3) = (false, false);
 
 """
 ```julia
-    ỹ_, w̃_ = get_1d_mixture_components(z_, a_, w, sig;
+    ỹ_, d̃_ = get_1d_mixture_components(z_, a_, w, sig;
                                        wrap=false, fill=true,
                                        fill_val_z=Inf, fill_val_a=Inf)
 ```
-Computes the 1d mixture components and their weights for the "2dp3" likelihood
-(or rather for the induced line distributions) from depth measurements `z_`
-along angles `a_`, and with a filter radius of `w`.
+Computes the 1d projections of mixture components onto the rays and
+their distances to the rays for the "2dp3" likelihood from
+depth measurements `z_` along angles `a_`, and with a filter radius of `w`.
 
 Arguments:
  - `z_`: Range measurements `(k,n)`
@@ -453,12 +494,13 @@ Arguments:
  - `w``: Filter window radius
 
 Returns:
- - `ỹ_`: 1d mixture components `(k, n, m)`, where `m2w+1`
- - `w̃_`: 1d mixture weights `(k, n, m)`, where `m2w+1`
+ - `ỹ_`: Projections onto ray `(k, n, m)`, where `m=2w+1`
+ - `d̃_`: Distances to ray `(k, n, m)`, where `m=2w+1`
 """
-function get_1d_mixture_components(z_, a_, w, sig;
+function get_1d_mixture_components(z_, a_, w;
                                    wrap=false, fill=true,
-                                   fill_val_z=Inf, fill_val_a=Inf)
+                                   fill_val_z=Inf, fill_val_a=0.0)
+
     a_ = reshape(a_,1,:)
     z̃_ = slw(z_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
     ã_ = slw(a_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
@@ -472,57 +514,177 @@ function get_1d_mixture_components(z_, a_, w, sig;
     d̃_ = z̃_ .* cos.(ã_)
     ỹ_ = z̃_ .* sin.(ã_)
 
-    # Handle Inf's and NaN
+    # Handle NaN coming from Inf * 0.0
     d̃_[isnan.(d̃_)] .= Inf
     ỹ_[isnan.(ỹ_)] .= Inf
 
     # Compute normalized mixture weights
-    w̃_ = gaussian_logpdf(d̃_, 0.0, sig)
-    w̃_ = w̃_ .- logsumexp_slice(w̃_, dims=3)
+    # w̃_ = gaussian_logpdf(d̃_, 0.0, 1.0)
+    # w̃_ = w̃_ .- logsumexp_slice(w̃_, dims=3)
 
-    return ỹ_, w̃_
+    return ỹ_, d̃_
 end;
 
 """
-    log_ps, ptw = sensor_logpdf_1d(z, ỹ, w̃, sig, outlier, outlier_vol; return_pointwise=false)
+    log_ps, ptw, outl = depthdist_logpdf(z, ỹ, w̃, sig, outlier, zmax; return_pointwise=false, return_outliermap=false)
 
 Evaluates an depth measurement `z` under the 2dp3 likelihood with <br/>
 a family of 1d mixture components `ỹ` and their weights ` w̃` and <br/>
 parameters `sig`, `outlier`, and `outlier_vol`.
 
 Arguments:
-    - `z`:  Depth measurements `(n,)`
-    - `w̃`: Family of mixture components `(k,n,m)`
-    - `ỹ`: Family of mixture components `(k,n,m)`
-    - ...
+    - `z`: Depth measurements `(n,)`
+    - `ỹ`: Family of 1d-mixture components `(k,n,m)`
+    - `w̃`: Family of 1d-mixture weights `(k,n,m)`
+    - `sig`: Standard deviation of the mixture components; either a scalar, or
+        an array that is broadcastable with the rest of the args, e.g. `(1,1,1, ...)`
+    - `outlier`: Outlier probability; either a scalar, or
+        an array that is broadcastable with the rest of the args, e.g. `(1,1,1, ...)`
 
 Returns:
-    - `log_ps`: Log-probs `(k,)`
-    - `ptw`:    Pointwise log-probs for each observation point `(k,n)`
+    - `log_ps`: Log-probs `(k,)` (or `(k, ...)` if sig or outlier are arrays)
+    - `ptw`:   Pointwise log-probs for each observation point `(k,n)` (or `(k,n, ...)` if sig or outlier are arrays)
+    - `outl`:  Pointwise outlier map for each observation point `(k,n)` (or `(k,n, ...)` if sig or outlier are arrays)
 """
-function sensor_logpdf_1d(z, ỹ, w̃, sig, outlier, outlier_vol; return_pointwise=false)
+function depthdist_logpdf_old(z, ỹ, w̃, sig::Union{Float64,AbstractArray}, outlier::Union{Float64,AbstractArray}, zmax; return_pointwise=false, return_outliermap=false)
 
-    log_ps = gaussian_logpdf(z, ỹ, sig)
-    log_ps = logsumexp_slice(log_ps .+ w̃, dims=3)
-    log_ps = log.((1 .- outlier).*exp.(log_ps) .+ outlier./outlier_vol)
-
-    ptw = nothing
-    if return_pointwise
-        ptw = dropdims(log_ps, dims=3)
+    # For the hierarchical Bayes verson
+    # we assume that the last dim of ỹ, w̃ already
+    if typeof(sig) <: AbstractArray
+        sig = reshape(sig, Base.fill(1, ndims(ỹ))..., length(sig))
     end
 
-    log_ps = sum(log_ps, dims=2)
-    log_ps = dropdims(log_ps, dims=(2,3))
+    if typeof(outlier) <: AbstractArray
+        outlier = reshape(outlier, Base.fill(1, ndims(ỹ))..., 1, length(outlier))
+    end
 
-    return log_ps, ptw
+    z = clamp.(z, 0.0, zmax)
+    # Inlier probability.
+    #   Compute the Gaussian log-probabilities,
+    #   truncate at zero and zmax, and
+    #   from the mixture.
+    log_p   = gaussian_logpdf(z, ỹ, sig)
+    log_p .-= log.(gaussian_cdf(zmax, ỹ, sig) .- gaussian_cdf(0.0, ỹ, sig))
+    log_p   = logsumexp_slice(log_p .+ w̃, dims=3)
+    log_p   = dropdims(log_p, dims=3)
+
+    # Outlier probability (here uniform)
+    # and outlier map
+    log_out = - log.(zmax)
+    outl = nothing
+    if return_outliermap
+        outl = log.(1 .- outlier) .+ log_p .< log.(outlier) .+ log_out
+    end
+
+    # Mixture of inlier and outlier probability
+    log_p = log.((1 .- outlier).*exp.(log_p) .+ outlier*exp.(log_out))
+
+    # Pointwise log-probabilities
+    ptw = nothing
+    if return_pointwise
+        ptw = log_p
+    end
+
+    log_p = sum(log_p, dims=2)
+    log_p = dropdims(log_p, dims=2)
+
+    return log_p, ptw, outl
 end;
-# Todo: We still have to truncate at zero. This is a distribution over the whole reals, including negative depths.
 
-struct SensorDistribution1d_CUDA <: Distribution{Vector{Float64}}
+"""
+    log_ps, ptw, outl = depthdist_logpdf(z, ỹ, d̃, sig, outlier, zmax, scale_noise=false, noise_anchor=1.0; return_pointwise=false, return_outliermap=false)
+
+Evaluates an depth measurement `z` under the 2dp3 likelihood with respect to<br/>
+a family of 1d mixture components `ỹ` and their distances `d̃` and <br/>
+parameters `sig`, `outlier`, and `zmax`...
+
+Arguments:
+    - `z`:   Depth measurements `(n,)`
+    - `ỹ`:   Family of 1d-mixture components `(k,n,m)`
+    - `w̃`:   Family of 1d-mixture distances `(k,n,m)`
+    - `sig`: Standard deviation of the mixture components; either a scalar, or
+             an array that is broadcastable with the rest of the args, e.g. `(1,1,1, ...)`
+    - `outlier`: Outlier probability; either a scalar, or
+                 an array that is broadcastable with the rest of the args, e.g. `(1,1,1, ...)`
+    - `zmax`:         Maximum depth value
+    - `scale_noise`:  If true, the noise is scaled by the depth value
+    - `noise_anchor`: The depth value at which the noise is scaled to `sig`
+
+Returns:
+    - `log_ps`: Log-probs `(k,)` (or `(k, ...)` if sig or outlier are arrays)
+    - `ptw`:    Pointwise log-probs for each observation point `(k,n)` (or `(k,n, ...)` if sig or outlier are arrays)
+    - `outl`:   Pointwise outlier map for each observation point `(k,n)` (or `(k,n, ...)` if sig or outlier are arrays)
+"""
+function depthdist_logpdf(z, ỹ, d̃, sig::Union{Float64,AbstractArray}, outlier::Union{Float64,AbstractArray}, zmax,
+                          scale_noise=false, noise_anchor=1.0;
+                          return_pointwise=false, return_outliermap=false)
+
+    # Truncate depth
+    z = clamp.(z, 0.0, zmax)
+
+    # For the hierarchical Bayes verson
+    # we assume that the last dim of ỹ, w̃ already
+    if typeof(sig) <: AbstractArray
+        sig = reshape(sig, Base.fill(1, ndims(ỹ))..., length(sig))
+    end
+
+    # Scale noise level proportional to depth of the mixture component.
+    # Todo: Is this the right way to do it? Should we clamp `sig`?
+    if scale_noise
+        # At distance `noise_anchor` the noise is `sig`
+        sig = ỹ./noise_anchor .* sig
+    end
+
+    # Compute normalized mixture weights
+    w̃ = gaussian_logpdf(d̃, 0.0, sig)
+    w̃ = w̃ .- logsumexp_slice(w̃, dims=3)
+
+
+    # Inlier probability.
+    #   Compute the Gaussian log-probabilities,
+    #   truncate at zero and zmax, and
+    #   from the mixture.
+    log_p   = gaussian_logpdf(z, ỹ, sig)
+    log_p .-= log.(gaussian_cdf(zmax, ỹ, sig) .- gaussian_cdf(0.0, ỹ, sig))
+    log_p   = logsumexp_slice(log_p .+ w̃, dims=3)
+    log_p   = dropdims(log_p, dims=3)
+
+    # Outlier probability (here uniform)
+    # and outlier map
+    if typeof(outlier) <: AbstractArray
+        outlier = reshape(outlier, Base.fill(1, ndims(log_p))..., length(outlier))
+    end
+
+    log_out = - log.(zmax)
+    outl = nothing
+    if return_outliermap
+        outl = log.(1 .- outlier) .+ log_p .< log.(outlier) .+ log_out
+    end
+
+    # Mixture of inlier and outlier probability
+    log_p = log.(
+        (1 .- outlier).*exp.(log_p) .+ outlier.*exp.(log_out)
+    )
+
+    # Pointwise log-probabilities
+    ptw = nothing
+    if return_pointwise
+        ptw = log_p
+    end
+
+    log_p = sum(log_p, dims=2)
+    log_p = dropdims(log_p, dims=2)
+
+    return log_p, ptw, outl
+end;
+
+using Distributions: TruncatedNormal
+
+struct DepthDistribution2DP3 <: Distribution{Vector{Float64}}
 end
 
 """
-    z::Vector{Float64} = sensordist1d_cu(ỹ, w̃, sig, outlier, outlier_vol=1.0)
+    z::Vector{Float64} = depthdist_2dp3(ỹ, w̃, sig, outlier, zmax)
 
 Restricted distribution from the 2dp3-likelihood.
 Takes 1d-mixture components `ỹ` and their weights `w̃`,  and
@@ -535,34 +697,41 @@ Arguments:
 Returns:
  - `z`: Observation vector of depth values `(n,)`
 """
-const sensordist1d_cu = SensorDistribution1d_CUDA()
+const depthdist_2dp3 = DepthDistribution2DP3()
 
-# Todo:
-function Gen.logpdf(::SensorDistribution1d_CUDA, z, ỹ_, w̃_, sig, outlier, outlier_vol=1.0)
+
+function Gen.logpdf(::DepthDistribution2DP3, z, ỹ, w̃, sig, outlier, zmax)
     n = size(ỹ, 1)
     m = size(ỹ, 2)
 
-    z_ = CuArray(z)
-    ỹ_ = reshape(ỹ_, 1, n, m)
-    w̃_ = reshape(w̃_, 1, n, m)
+    ỹ = reshape(ỹ, 1, n, m)
+    w̃ = reshape(w̃, 1, n, m)
 
-    log_p, = sensor_logpdf_1d(z_, ỹ_, w̃_, sig, outlier, outlier_vol) # CuArray of length 1
-    return CUDA.@allowscalar log_p[1]
+    log_p, = depthdist_logpdf(z, ỹ, w̃, sig, outlier, zmax; return_pointwise=false, return_outliermap=false)
+
+    if _cuda[]
+        log_p = CUDA.@allowscalar log_p[1]
+    else
+        log_p = log_p[1]
+    end
+    return log_p
 end
 
-function Gen.random(::SensorDistribution1d_CUDA, ỹ_, w̃_, sig, outlier, outlier_vol=1.0)
+function Gen.random(::DepthDistribution2DP3, ỹ, w̃, sig, outlier, zmax)
     n = size(ỹ_,1)
     m = size(ỹ_,2)
 
-    # Sample an observation point cloud `x`
+    # Sample a depth values `z`
     z = Float64[]
     for i=1:n
         if bernoulli(outlier)
             # Todo: Change that to a uniform distribution using `zmax`.
-            z_i = Inf
+            z_i = uniform(0.0, zmax)
         else
-            j   = categorical(exp.(w̃_[i,:]) )
-            z_i = normal(ỹ_[i,j], sig)
+            # @assert sum(exp.(w̃[i,:])) == 1.0
+            probs = exp.(w̃[i,:])/sum(exp.(w̃[i,:]))
+            j   = categorical(probs)
+            z_i = rand(TruncatedNormal(ỹ_[i,j], sig, 0.0, zmax))
         end
         push!(z, z_i)
     end
@@ -570,6 +739,6 @@ function Gen.random(::SensorDistribution1d_CUDA, ỹ_, w̃_, sig, outlier, outli
     return z
 end
 
-(D::SensorDistribution1d_CUDA)(args...)             = Gen.random(D, args...)
-Gen.has_output_grad(::SensorDistribution1d_CUDA)    = false
-Gen.has_argument_grads(::SensorDistribution1d_CUDA) = (false, false);
+(D::DepthDistribution2DP3)(args...)          = Gen.random(D, args...)
+Gen.has_output_grad(::DepthDistribution2DP3) = false
+Gen.has_argument_grads(::DepthDistribution2DP3) = (false, false);

@@ -22,11 +22,10 @@ polar(x::Vector{Float64}) = [norm(x);atan(x[2],x[1])];
 polar_inv(zs::Vector{Float64}, as::Vector{Float64}) = [[z*cos(a);z*sin(a)] for (z,a) in zip(zs,as)];
 polar_inv(r_and_phi::Vector{Float64}) = [r_and_phi[1]*cos(r_and_phi[2]);r_and_phi[1]*sin(r_and_phi[2])]
 polar_inv(r::Float64, phi::Float64)   = [r*cos(phi);r*sin(phi)]
-polar_inv(z::Array, a::Array) = cat(z.*cos.(a), z.*sin.(a), dims=ndims(a)+1);
+polar_inv(z::AbstractArray, a::AbstractArray) = z .* cat(cos.(a), sin.(a), dims=ndims(a)+1);
 
 
-
-export unit_vec, polar, angle, stack, peak_to_peak, euclidean, polar_inv
+export unit_vec, polar, angle, peak_to_peak, euclidean, polar_inv
 
 """
 Stacks vectors on top of each other (as rows, along dim 1)
