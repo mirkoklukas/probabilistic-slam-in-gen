@@ -72,10 +72,13 @@ function Plots.plot!(s::Segment; args...)
     plot!([s.x[1],s.y[1]], [s.x[2],s.y[2]]; args...)
 end
 
-function Plots.plot!(segs::Vector{Segment}; args...)
+function Plots.plot!(segs::Vector{Segment}; label=nothing, args...)
     myplot = nothing
-    for s in segs
-        myplot = plot!(s;args...)
+    for (i,s) in enumerate(segs)
+        if i > 1
+            label = nothing
+        end
+        myplot = plot!(s; label=label, args...)
     end
     return myplot
 end

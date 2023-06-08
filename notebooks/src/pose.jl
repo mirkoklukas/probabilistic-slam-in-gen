@@ -14,7 +14,7 @@ using MyUtils
 import LinearAlgebra
 
 
-@doc raw"""
+"""
     Pose
 
 Encoding the pose of a 2d agent as
@@ -25,6 +25,12 @@ mutable struct Pose
     hd::Float64
 end;
 
+"""
+    Conrol
+
+Encoding the control of a 2d agent as a
+2d-velocity `dx` and its head direction change `dhd`.
+"""
 mutable struct Control
     dx::Vector{Float64}
     dhd::Float64
@@ -42,6 +48,8 @@ function normalize!(p::Pose)
 end
 
 headdirection(p::Pose) = p.hd
+Base.angle(p::Pose)    = p.hd
+MyUtils.rot(p::Pose)    = p.hd
 position(p::Pose)      = p.x
 tuple(p::Pose)         = (p.x, p.hd)
 
@@ -68,7 +76,7 @@ Base.:(-)(p::Pose, u::Control) = Pose(p.x - u.dx, p.hd - u.dhd)
 
 export Pose, Control, headdirection, position, tuple, normalize!, normalize_hd
 
-@doc raw"""
+"""
     Mat(p::Pose)
 
 Matrix representation of pose `p`.
@@ -76,7 +84,7 @@ Transforms from pose's coordinates to global coordinates
 """
 mat(p::Pose) = [rot(p.hd) p.x; [0 0 1]]
 
-raw"""
+"""
     Inv(p::Pose)
 
 Transforms into pose's ``egocentric'' coordinate system.
@@ -123,17 +131,24 @@ function Base.:(*)(p::Pose, q::Pose)
 end;
 
 
-function Plots.scatter!(p::Pose; r=1., c=:red, args...)
-    x = p.x
-    hd = p.hd
-    scatter!([x[1]],[x[2]], label=nothing, markerstrokewidth=0.0; c=c, args...)
-    plot!([x[1],x[1] + r*cos(hd)], [x[2],x[2] + r*sin(hd)], label=nothing, linecolor=c; args...)
-end
+function Plots.plot!(p::Pose; r=0.5, arrow=false, args...)
+    plot!([p.x, p.x + r*unit_vec(p.hd)]; arrow=arrow, r=r, args...)
+end;
 
-function Plots.plot!(p::Pose; r=0.5, n=30, args...)
-    x,y = p.x[1], p.x[2]
-    hd = p.hd
-    θs = range(0, 2π, n)
-    plot!(r*sin.(θs) .+ x, r*cos.(θs) .+ y,      label=nothing; args...)
-    plot!([x, x + r*cos(hd)],[y, y + r*sin(hd)], label=nothing; args...)
-end
+function Plots.plot!(ps::Vector{Pose}, cs::Vector{RGBA{Float64}}; r=0.5, label=nothing, args...)
+    myplot=nothing
+    for (i,(p,c)) in enumerate(zip(ps,cs))
+        if i > 1 label=nothing end
+        myplot = plot!(p; c=c, r=r, label=label, args...)
+    end
+    return myplot
+end;
+
+function Plots.plot!(ps::Vector{Pose}; r=0.5, label=nothing, args...)
+    myplot=nothing
+    for (i,p) in enumerate(ps)
+        if i > 1 label=nothing end
+        myplot = plot!(p; label=label, r=r, args...)
+    end
+    return myplot
+end;

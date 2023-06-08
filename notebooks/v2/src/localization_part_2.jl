@@ -10,12 +10,6 @@
 
 using GenParticleFilters
 
-function perturb(u::Control, x_noise, hd_noise)
-    dx  = u.dx  + diagnormal([0.,0.], [x_noise, x_noise])
-    dhd = u.dhd + normal(0, hd_noise)
-    return Control(dx,dhd)
-end
-
 @gen function slam_kernel(t, state, m, us, x_noise, hd_noise, w, s_noise, outlier, outlier_vol)
 
     p,_ = state
@@ -44,7 +38,7 @@ Gen.@load_generated_functions
     x  = { :sensor } ~ sensor_model(p, m, w, s_noise, outlier, outlier_vol) # GPU accelerated
 
     # Unfold the MArkov chain
-    chain ~ slam_chain(T, (p, nothing), m, us,
+    chain ~ slam_chain(T, (p, x), m, us,
         x_noise, hd_noise,
         w, s_noise, outlier, outlier_vol)
 
@@ -53,18 +47,12 @@ end
 
 Gen.@load_generated_functions
 
-add_addr_prefix(t, addr) = t==0 ? addr : :chain => t => addr
+add_addr_prefix(t_chain, addr) = t_chain==0 ? addr : :chain => t_chain => addr
 
-function constraints(t::Int, _zs, _as)
+function constraints(t_chain::Int, _zs, _as)
     ch = choicemap()
-    # if t==0
-    #     addr  = :sensor => :x
-    # else
-    #     addr  = :chain => t => :sensor => :x
-    # end
-    n = length(_zs[t+1])
-    x = polar_inv(_zs[t+1],_as)
-    ch[add_addr_prefix(t, :sensor => :x)] = x
+    x  = polar_inv(_zs[t_chain+1],_as)
+    ch[add_addr_prefix(t_chain, :sensor => :x)] = x
     return ch
 end
 
@@ -80,7 +68,6 @@ function plot_slam_trace!(tr; show_obs=true)
     xs = get_obs.([tr],1:T+1)
 
     myplot = plot(size=(300,300),
-        title="A Trace",
         aspect_ratio=1., legend=nothing)
 
     plot!(_ps, c=:red)
@@ -89,7 +76,7 @@ function plot_slam_trace!(tr; show_obs=true)
     plot!(_boxes, c=:magenta)
     if show_obs
         for (x,p) in zip(xs, ps)
-            myplot = scatter!(x .* p, c=col[1], markersize=2)
+            myplot = scatter!(x .* p, c=col[1], markerstrokewidth=0, markersize=1)
         end
     end
     return myplot
