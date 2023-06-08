@@ -518,10 +518,6 @@ function get_1d_mixture_components(z_, a_, w;
     d̃_[isnan.(d̃_)] .= Inf
     ỹ_[isnan.(ỹ_)] .= Inf
 
-    # Compute normalized mixture weights
-    # w̃_ = gaussian_logpdf(d̃_, 0.0, 1.0)
-    # w̃_ = w̃_ .- logsumexp_slice(w̃_, dims=3)
-
     return ỹ_, d̃_
 end;
 
@@ -700,14 +696,14 @@ Returns:
 const depthdist_2dp3 = DepthDistribution2DP3()
 
 
-function Gen.logpdf(::DepthDistribution2DP3, z, ỹ, w̃, sig, outlier, zmax)
+function Gen.logpdf(::DepthDistribution2DP3, z, ỹ, d̃, sig, outlier, zmax, scale_noise=false, noise_anchor=1.0)
     n = size(ỹ, 1)
     m = size(ỹ, 2)
 
     ỹ = reshape(ỹ, 1, n, m)
-    w̃ = reshape(w̃, 1, n, m)
+    d̃ = reshape(d̃, 1, n, m)
 
-    log_p, = depthdist_logpdf(z, ỹ, w̃, sig, outlier, zmax; return_pointwise=false, return_outliermap=false)
+    log_p, = depthdist_logpdf(z, ỹ, d̃, sig, outlier, zmax, scale_noise, noise_anchor; return_pointwise=false, return_outliermap=false)
 
     if _cuda[]
         log_p = CUDA.@allowscalar log_p[1]
@@ -717,9 +713,9 @@ function Gen.logpdf(::DepthDistribution2DP3, z, ỹ, w̃, sig, outlier, zmax)
     return log_p
 end
 
-function Gen.random(::DepthDistribution2DP3, ỹ, w̃, sig, outlier, zmax)
-    n = size(ỹ_,1)
-    m = size(ỹ_,2)
+function Gen.random(::DepthDistribution2DP3, ỹ, d̃, sig, outlier, zmax, scale_noise=false, noise_anchor=1.0)
+    n = size(ỹ,1)
+    m = size(ỹ,2)
 
     # Sample a depth values `z`
     z = Float64[]
@@ -729,9 +725,23 @@ function Gen.random(::DepthDistribution2DP3, ỹ, w̃, sig, outlier, zmax)
             z_i = uniform(0.0, zmax)
         else
             # @assert sum(exp.(w̃[i,:])) == 1.0
-            probs = exp.(w̃[i,:])/sum(exp.(w̃[i,:]))
+            # Scale noise level proportional to depth of the mixture component.
+            # Todo: Is this the right way to do it? Should we clamp `sig`?
+            ỹ = Array(ỹ)
+            d̃ = Array(d̃)
+
+            if scale_noise
+                # At distance `noise_anchor` the noise is `sig`
+                sig′ = ỹ[i,:]./noise_anchor .* sig
+            end
+
+            # Compute normalized mixture weights
+            w̃ = gaussian_logpdf(d̃[i,:], 0.0, sig)
+            w̃ = w̃ .- logsumexp(w̃)
+
+            probs = exp.(w̃)/sum(exp.(w̃))
             j   = categorical(probs)
-            z_i = rand(TruncatedNormal(ỹ_[i,j], sig, 0.0, zmax))
+            z_i = rand(TruncatedNormal(ỹ[i,j], scale_noise ? sig′[j] : sig, 0.0, zmax))
         end
         push!(z, z_i)
     end
