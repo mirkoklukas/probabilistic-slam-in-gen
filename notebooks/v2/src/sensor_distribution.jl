@@ -497,94 +497,84 @@ Returns:
  - `ỹ_`: Projections onto ray `(k, n, m)`, where `m=2w+1`
  - `d̃_`: Distances to ray `(k, n, m)`, where `m=2w+1`
 """
-function get_1d_mixture_components(z_, a_, w;
+function get_1d_mixture_components(z_::CuArray, a_::CuArray, w;
                                    wrap=false, fill=true,
                                    fill_val_z=Inf, fill_val_a=0.0)
 
     a_ = reshape(a_,1,:)
-    z̃_ = slw(z_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
-    ã_ = slw(a_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
+    z̃_ = slw_cu(z_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_z)
+    ã_ = slw_cu(a_, w; blockdims=(8,8,4), wrap=wrap, fill=fill, fill_val=fill_val_a)
 
     # We compute the projection `ỹ` of the 2d mixtures onto
     # the ray through each pixel and their distance `d̃` to the rays.
     #
     # Note that the embedded point is of the form `[z*cos(a), z*cos(a)]` and
     # the projections are given by the dot products with the x- and y-axis.
-    ã_ = π/2 .- ã_ .+ a_
-    d̃_ = z̃_ .* cos.(ã_)
-    ỹ_ = z̃_ .* sin.(ã_)
+    ã_ = ã_ .- a_
+    ỹ_ = z̃_ .* cos.(ã_)
+    d̃_ = z̃_ .* sin.(ã_)
 
     # Handle NaN coming from Inf * 0.0
-    d̃_[isnan.(d̃_)] .= Inf
-    ỹ_[isnan.(ỹ_)] .= Inf
+    if fill_val_z == Inf
+        d̃_[isnan.(d̃_)] .= Inf
+        ỹ_[isnan.(ỹ_)] .= Inf
+    end
 
     return ỹ_, d̃_
 end;
 
 """
-    log_ps, ptw, outl = depthdist_logpdf(z, ỹ, w̃, sig, outlier, zmax; return_pointwise=false, return_outliermap=false)
-
-Evaluates an depth measurement `z` under the 2dp3 likelihood with <br/>
-a family of 1d mixture components `ỹ` and their weights ` w̃` and <br/>
-parameters `sig`, `outlier`, and `outlier_vol`.
+```julia
+    ỹ, d̃ = get_1d_mixture_components(z, a, w, sig;
+                                       wrap=false, fill=true,
+                                       fill_val_z=Inf, fill_val_a=Inf)
+```
+Computes the 1d projections of mixture components onto the rays and
+their distances to the rays for the "2dp3" likelihood from
+depth measurements `z_` along angles `a_`, and with a filter radius of `w`.
 
 Arguments:
-    - `z`: Depth measurements `(n,)`
-    - `ỹ`: Family of 1d-mixture components `(k,n,m)`
-    - `w̃`: Family of 1d-mixture weights `(k,n,m)`
-    - `sig`: Standard deviation of the mixture components; either a scalar, or
-        an array that is broadcastable with the rest of the args, e.g. `(1,1,1, ...)`
-    - `outlier`: Outlier probability; either a scalar, or
-        an array that is broadcastable with the rest of the args, e.g. `(1,1,1, ...)`
+ - `z`: Range measurements `(k,n)`
+ - `a`: Angles of measuremnts `(n,)`
+ - `w``: Filter window radius
 
 Returns:
-    - `log_ps`: Log-probs `(k,)` (or `(k, ...)` if sig or outlier are arrays)
-    - `ptw`:   Pointwise log-probs for each observation point `(k,n)` (or `(k,n, ...)` if sig or outlier are arrays)
-    - `outl`:  Pointwise outlier map for each observation point `(k,n)` (or `(k,n, ...)` if sig or outlier are arrays)
+ - `ỹ`: Projections onto ray `(k, n, m)`, where `m=2w+1`
+ - `d̃`: Distances to ray `(k, n, m)`, where `m=2w+1`
 """
-function depthdist_logpdf_old(z, ỹ, w̃, sig::Union{Float64,AbstractArray}, outlier::Union{Float64,AbstractArray}, zmax; return_pointwise=false, return_outliermap=false)
+function get_1d_mixture_components(z, a, w;
+                                   wrap=false, fill=true,
+                                   fill_val_z=Inf, fill_val_a=0.0)
 
-    # For the hierarchical Bayes verson
-    # we assume that the last dim of ỹ, w̃ already
-    if typeof(sig) <: AbstractArray
-        sig = reshape(sig, Base.fill(1, ndims(ỹ))..., length(sig))
+    if _cuda[]
+        z_ = CuArray(z)
+        a_ = CuArray(a)
+        ỹ_, d̃_ = get_1d_mixture_components(z_, a_, w;
+                                            wrap=wrap, fill=fill,
+                                            fill_val_z=fill_val_z, fill_val_a=fill_val_a)
+        return Array(ỹ_), Array(d̃_)
+    else
+        a = reshape(a,1,:)
+        z̃ = slw_cpu(z, w; wrap=wrap, fill=fill, fill_val=fill_val_z)
+        ã = slw_cpu(a, w; wrap=wrap, fill=fill, fill_val=fill_val_a)
+
+        # We compute the projection `ỹ` of the 2d mixtures onto
+        # the ray through each pixel and their distance `d̃` to the rays.
+        #
+        # Note that the embedded point is of the form `[z*cos(a), z*cos(a)]` and
+        # the projections are given by the dot products with the x- and y-axis.
+        ã = π/2 .- ã .+ a
+        d̃ = z̃ .* cos.(ã)
+        ỹ = z̃ .* sin.(ã)
+
+        # Handle NaN coming from Inf * 0.0
+        if fill_val_z == Inf
+            d̃[isnan.(d̃)] .= Inf
+            ỹ[isnan.(ỹ)] .= Inf
+        end
+
+        return ỹ, d̃
     end
-
-    if typeof(outlier) <: AbstractArray
-        outlier = reshape(outlier, Base.fill(1, ndims(ỹ))..., 1, length(outlier))
-    end
-
-    z = clamp.(z, 0.0, zmax)
-    # Inlier probability.
-    #   Compute the Gaussian log-probabilities,
-    #   truncate at zero and zmax, and
-    #   from the mixture.
-    log_p   = gaussian_logpdf(z, ỹ, sig)
-    log_p .-= log.(gaussian_cdf(zmax, ỹ, sig) .- gaussian_cdf(0.0, ỹ, sig))
-    log_p   = logsumexp_slice(log_p .+ w̃, dims=3)
-    log_p   = dropdims(log_p, dims=3)
-
-    # Outlier probability (here uniform)
-    # and outlier map
-    log_out = - log.(zmax)
-    outl = nothing
-    if return_outliermap
-        outl = log.(1 .- outlier) .+ log_p .< log.(outlier) .+ log_out
-    end
-
-    # Mixture of inlier and outlier probability
-    log_p = log.((1 .- outlier).*exp.(log_p) .+ outlier*exp.(log_out))
-
-    # Pointwise log-probabilities
-    ptw = nothing
-    if return_pointwise
-        ptw = log_p
-    end
-
-    log_p = sum(log_p, dims=2)
-    log_p = dropdims(log_p, dims=2)
-
-    return log_p, ptw, outl
 end;
 
 """
@@ -597,7 +587,7 @@ parameters `sig`, `outlier`, and `zmax`...
 Arguments:
     - `z`:   Depth measurements `(n,)`
     - `ỹ`:   Family of 1d-mixture components `(k,n,m)`
-    - `w̃`:   Family of 1d-mixture distances `(k,n,m)`
+    - `d̃`:   Family of 1d-mixture distances `(k,n,m)`
     - `sig`: Standard deviation of the mixture components; either a scalar, or
              an array that is broadcastable with the rest of the args, e.g. `(1,1,1, ...)`
     - `outlier`: Outlier probability; either a scalar, or
@@ -615,8 +605,9 @@ function depthdist_logpdf(z, ỹ, d̃, sig::Union{Float64,AbstractArray}, outlie
                           scale_noise=false, noise_anchor=1.0;
                           return_pointwise=false, return_outliermap=false)
 
-    # Truncate depth
+    # Truncate depth and make compatible with ỹ, d̃
     z = clamp.(z, 0.0, zmax)
+    z = reshape(z, 1, length(z), 1)
 
     # For the hierarchical Bayes verson
     # we assume that the last dim of ỹ, w̃ already

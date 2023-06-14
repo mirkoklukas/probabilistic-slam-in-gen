@@ -10,6 +10,7 @@ Gen v0.4.5
 GenParticleFilters v0.2.1
 IJulia v1.24.0
 Images v0.25.2
+ImageFiltering v0.7.5
 Interact v0.10.5
 IterTools v1.4.0
 JLD2 v0.4.31
