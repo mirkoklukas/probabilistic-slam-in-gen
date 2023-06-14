@@ -80,6 +80,16 @@ Base.:(-)(p::Pose, u::Control) = Pose(p.x - u.dx, p.hd - u.dhd)
 
 export Pose, Control, headdirection, position, tuple, normalize!, normalize_hd
 
+using Gen: broadcasted_normal, normal
+const diagnormal = broadcasted_normal
+
+function perturb(u::Control, x_noise, hd_noise)
+    dx  = u.dx  + diagnormal([0.,0.], [x_noise, x_noise])
+    dhd = u.dhd + normal(0, hd_noise)
+    return Control(dx,dhd)
+end
+export perturb
+
 """
     Mat(p::Pose)
 
