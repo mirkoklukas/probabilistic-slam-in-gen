@@ -162,6 +162,19 @@ function cast(vs::AbstractArray, segs::AbstractArray, as::AbstractVector, zmax=I
     return z, i′
 end;
 
+function plot_rays!(p, zs, as; step=1, cs=nothing,  args...)
+    ys = polar_inv(zs, as)
+    for i = 1:step:length(ys)
+        y = ys[i]
+        if cs == nothing
+            plot!([p.x, y*p]; args...)
+        else
+            plot!([p.x, y*p]; color=cs[i], args...)
+        end
+    end
+end;
+export plot_rays!
+
 function cast_cpu!(Z, X, P, fov=2π)
     num_a = size(Z,2)
     r     = fov/(num_a-1)

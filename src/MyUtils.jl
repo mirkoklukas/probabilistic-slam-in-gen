@@ -62,6 +62,20 @@ function summarize_vars(ex::Expr; fstr=f"{1:<10.10} {2:<}")
     end
 end;
 
+function sort_them(vals, xs...)
+    perm = sortperm(vals)
+    return vals[perm], [x[perm] for x in xs]...
+end
+
+function sort_them!(vals, xs...)
+    perm = sortperm(vals)
+    vals[:] = vals[perm]
+    for x in xs
+        x[:] = x[perm]
+    end
+    return perm
+end
+
 using CUDA
 using BenchmarkTools
 

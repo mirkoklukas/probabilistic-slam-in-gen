@@ -8,7 +8,7 @@
 #                                   #
 # # # # # # # # # # # # # # # # # # #
 
-
+using Revise
 using BenchmarkTools
 using Colors, Plots, Images;
 col = palette(:default);
@@ -16,9 +16,10 @@ col = palette(:default);
 (cgrad::PlotUtils.ContinuousColorGradient)(m::Matrix{Float64}) = reshape(cgrad[m[:]], size(m));
 using Gen
 using Fmt: @f_str, format # Python-style f-strings
+using CUDA
 
-push!(LOAD_PATH, "../../src");
-using Pose2D
+push!(LOAD_PATH, "../../../src");
+using Pose2D: Pose
 using Geometry: Segment
 using MyUtils
 using Raycaster
@@ -34,14 +35,21 @@ quantize(x, r; zero=0) = Int.(floor.((x .+ r./2 .- zero)./r))
     get_offset(v0, k, r)
 
 Computes the offset to move the center
-of the grid to `v0`.
+of the grid to `v0`. The offset is a vector
+pointing to the lower-left corner of the grid.
 """
 function get_offset(v0, k, r)
     center = (r + k.*r)/2
     return v0 - center
 end
 
-function first_grid_vec(v0::Vector{Real}, k::Vector{Int}, r::Vector{Real})
+""""
+   v1 = first_grid_vec(v0, k, r)
+
+Returns the first vector in the grid, ie. for a given
+grid `vs` it computes vs[1].
+"""
+function first_grid_vec(v0::Vector{T}, k::Vector{Int}, r::Vector{T}) where T <: Real
     return r + get_offset(v0, k, r)
 end
 
@@ -58,23 +66,36 @@ function vector_grid(v0::Vector{Float64}, k::Vector{Int}, r::Vector{Float64})
 
     shape = Tuple(k)
     cs = CartesianIndices(shape)
-    ls = LinearIndices(shape)
     vs = map(I -> [Tuple(I)...].*r + offset, cs);
-    return (vs=vs, linear_indices=ls)
+    return vs
 end
 
 
 function grid_index(x, v0, k, r; linear=false)
     I = quantize(x, r, zero=get_offset(v0, k, r));
+    I = CartesianIndex(I...)
     if linear
         shape = Tuple(k)
-        I = LinearIndices(shape)[I...]
+        I = LinearIndices(shape)[I]
     end
     return I
-end
+end;
+
+
+function grid_index(x, vs::AbstractArray; linear=false)
+    r = vs[fill(2, ndims(vs))...] - vs[fill(1, ndims(vs))...]
+    offset = vs[1] - r
+    I = quantize(x, r, zero=offset);
+    I = CartesianIndex(I...)
+    if linear
+        shape = size(vs)
+        I = LinearIndices(shape)[I]
+    end
+    return I
+end;
 
 """
-    log_ps, ps = eval_pose_vectors(
+    logps, outl = eval_pose_vectors(
                     vs   :: Array{Vector{Float64}},
                     z    :: Vector{Float64},
                     segs :: Vector{Segment},
@@ -89,14 +110,10 @@ function eval_pose_vectors(
             vs   :: Array{Vector{Float64}},
             z    :: Vector{Float64},
             segs :: Vector{Segment},
-            fov, num_a, w::Int,
+            fov, num_a::Int, w::Int,
             sig, outlier,
-            zmax::Float64=50.0; sorted=false)
-
-    # Compute sensor measurements and
-    # Gaussian mixture components
-    # p_  = CuArray(Vector(p))
-    # ps_ = reshape(p_, 1, 3)
+            zmax::Float64=50.0;
+            sorted=false, return_outliermap=false)
 
     ps   = stack(vs[:])
     segs = stack(Vector.(segs))
@@ -109,27 +126,56 @@ function eval_pose_vectors(
         as   = CuArray(as)
     end
 
-
-
     zs = cast(ps, segs; fov=fov, num_a=num_a, zmax=zmax)
     ỹ, d̃ = get_1d_mixture_components(zs, as, w);
 
+
     # Evaluate the the observations with respect to the
     # different Gaussian mixtures computed above
-    log_p, = depthdist_logpdf(zs, ỹ, d̃, sig, outlier, zmax;
-                              scale_noise=false, return_pointwise=false, return_outliermap=false);
+    logps,_, outl = depthdist_logpdf(z, ỹ, d̃, sig, outlier, zmax;
+                              scale_noise=false,
+                              return_pointwise=false,
+                              return_outliermap=return_outliermap);
 
-    # Move everyting back to CPU if is not already there
-    log_ps = Array(log_ps)
-
-    # Sort by log prob
-    # and return
-    if sorted
-        perm   = sortperm(log_ps)
-        log_ps = log_ps[perm]
-        vs     = vs[:][perm]
+    # Move everyting back to CPU
+    # if is not already there
+    logps = Array(logps)
+    if return_outliermap
+        outl = Array(outl)
     end
 
-    return log_ps, vs[:]
+    return logps, outl
 end;
 
+"""
+    logps, outl = eval_pose_vectors(
+                    vs   :: Array{Vector{Float64}},
+                    z    :: Vector{Float64},
+                    segs :: Vector{Segment},
+                    fov, num_a::Int, w::Int,
+                    sig     :: AbstractVector,
+                    outlier :: AbstractVector,
+                    zmax::Float64=50.0
+                    ;sorted=false, return_outliermap=false)
+
+Evaluates a collection of poses
+with respect to different Gaussian mixtures...
+"""
+function eval_pose_vectors(
+    vs   :: Array{Vector{Float64}},
+    z    :: Vector{Float64},
+    segs :: Vector{Segment},
+    fov, num_a::Int, w::Int,
+    sig::AbstractVector,
+    outlier::AbstractVector,
+    zmax::Float64=50.0
+    ;sorted=false, return_outliermap=false)
+
+    if _cuda[]
+        sig     = CuArray(sig)
+        outlier = CuArray(outlier)
+    end
+
+    return eval_pose_vectors(vs, z, segs, fov, num_a, w, sig, outlier, zmax;
+            return_outliermap=return_outliermap)
+end;

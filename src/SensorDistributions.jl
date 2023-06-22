@@ -619,7 +619,7 @@ function depthdist_logpdf(z, ỹ, d̃, sig::Union{Float64,AbstractArray}, outlie
                           scale_noise=false, return_pointwise=false, return_outliermap=false)
 
     # Truncate depth and make compatible with ỹ, d̃
-    # Todo: Should we actually clamp ourselves?
+    # Todo: Should we actually clamp here? ourselves?
     z = clamp.(z, 0.0, zmax)
     z = reshape(z, 1, length(z), 1)
 
