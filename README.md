@@ -38,6 +38,7 @@ The main notebooks with the actual tutorials can be found in `notebooks/dev/v2/`
 - [Localization Tutorial - Part 1.ipynb](notebooks/dev/v2/51%20-%20Localization%20Tutorial%20-%20Part%201.ipynb)
 - [Localization Turorial - Part 2.ipynb](notebooks/dev/v2/52%20-%20Localization%20Tutorial%20-%20Part%202.ipynb)
 - [Localization Turorial - Part 3.ipynb](notebooks/dev/v2/53%20-%20Localization%20Tutorial%20-%20Part%203.ipynb)
+  
 and
 - [SLAM Tutorial - Part 1](notebooks/dev/v2/41%20-%20SLAM%20Tutorial%20-%20Part%201.ipynb)
 - [SLAM Tutorial - Part 2](notebooks/dev/v2/42%20-%20SLAM%20Tutorial%20-%20Part%202.ipynb)
